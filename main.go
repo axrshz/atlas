@@ -28,8 +28,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	configPath := os.Getenv("AGENT_CONFIG")
-	appConfig, err := config.LoadConfig(configPath)
+	appConfig, err := config.LoadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %s\n", err)
 		os.Exit(1)

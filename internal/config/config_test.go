@@ -1,8 +1,6 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -11,15 +9,10 @@ func TestLoadConfigAppliesDefaultsAndEnvironmentOverrides(t *testing.T) {
 	t.Setenv("AGENT_BASE_URL", "")
 	t.Setenv("AGENT_REASONING_EFFORT", "low")
 	t.Setenv("AGENT_SYSTEM_PROMPT", "")
-	t.Setenv("AGENT_MAX_TOKENS", "")
-	t.Setenv("AGENT_TEMPERATURE", "")
+	t.Setenv("AGENT_MAX_TOKENS", "1234")
+	t.Setenv("AGENT_TEMPERATURE", "0")
 
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"temperature":0,"max_tokens":1234}`), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	config, err := LoadConfig(configPath)
+	config, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -41,9 +41,7 @@ the agent starts with these defaults:
 - maximum completion tokens: `4096`
 - temperature: `0.7`
 
-set `AGENT_CONFIG` to a json file based on `config.json.example` to override any of those values. unspecified json fields retain their defaults.
-
-environment variables take precedence over the json file:
+set any of these optional values in `.env`. omitted values keep their defaults:
 
 - `AGENT_MODEL`
 - `AGENT_BASE_URL`
@@ -61,6 +59,7 @@ the agent resumes the most recently updated session at startup and saves after e
 - `/new` — start a new session
 - `/sessions` — list saved sessions
 - `/delete-session <id>` — delete an inactive session
+- `/reload` — rebuild and restart the agent after changing the harness
 - `/help` — show the commands
 
 ## tools

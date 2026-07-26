@@ -1,21 +1,19 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
 
 type Config struct {
-	Model           string  `json:"model"`
-	BaseURL         string  `json:"base_url"`
-	ReasoningEffort string  `json:"reasoning_effort"`
-	MaxTokens       int     `json:"max_tokens"`
-	Temperature     float64 `json:"temperature"`
-	SystemPrompt    string  `json:"system_prompt"`
+	Model           string
+	BaseURL         string
+	ReasoningEffort string
+	MaxTokens       int
+	Temperature     float64
+	SystemPrompt    string
 }
 
 func DefaultConfig() Config {
@@ -25,22 +23,13 @@ func DefaultConfig() Config {
 		ReasoningEffort: "high",
 		MaxTokens:       4096,
 		Temperature:     0.7,
-		SystemPrompt:    "You are a helpful coding assistant. Use the available tools when needed.",
+		SystemPrompt:    "You are a helpful coding assistant. Use the available tools when needed. Keep your responses concise and to the point. Only answer and do what is asked; Not more, not less.",
 	}
 }
 
-func LoadConfig(configPath string) (Config, error) {
+// LoadConfig starts with defaults and applies optional settings from .env.
+func LoadConfig() (Config, error) {
 	config := DefaultConfig()
-
-	if configPath != "" {
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			return config, fmt.Errorf("failed to read config file: %w", err)
-		}
-		if err := json.Unmarshal(data, &config); err != nil {
-			return config, fmt.Errorf("failed to parse config file: %w", err)
-		}
-	}
 
 	if err := applyEnvironmentOverrides(&config); err != nil {
 		return config, err
@@ -49,28 +38,6 @@ func LoadConfig(configPath string) (Config, error) {
 		return config, err
 	}
 	return config, nil
-}
-
-func SaveConfig(config Config, configPath string) error {
-	if configPath == "" {
-		return fmt.Errorf("config path is required")
-	}
-	if err := validateConfig(config); err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
-	return nil
 }
 
 func applyEnvironmentOverrides(config *Config) error {

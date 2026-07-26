@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -16,6 +20,8 @@ import (
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
 )
+
+var errAgentReloading = errors.New("agent is reloading")
 
 type Agent struct {
 	client         *openai.Client
@@ -42,7 +48,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	fmt.Printf("chat with %s (use ctrl-c to quit)\n", a.config.Model)
-	fmt.Println("commands: /new, /sessions, /delete-session <id>, /help")
+	fmt.Println("commands: /new, /sessions, /delete-session <id>, /reload, /help")
 
 	for {
 		fmt.Print("\033[94myou\033[0m: ")
@@ -52,6 +58,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 
 		if handled, err := a.handleCommand(userInput); handled || err != nil {
+			if errors.Is(err, errAgentReloading) {
+				return nil
+			}
 			if err != nil {
 				fmt.Printf("error: %s\n", err)
 			}
@@ -166,8 +175,10 @@ func (a *Agent) handleCommand(input string) (bool, error) {
 	command := strings.TrimSpace(input)
 	switch {
 	case command == "/help":
-		fmt.Println("commands: /new, /sessions, /delete-session <id>, /help")
+		fmt.Println("commands: /new, /sessions, /delete-session <id>, /reload, /help")
 		return true, nil
+	case command == "/reload":
+		return true, a.reload()
 	case command == "/new":
 		return true, a.startNewSession("")
 	case command == "/sessions":
@@ -199,6 +210,47 @@ func (a *Agent) handleCommand(input string) (bool, error) {
 	default:
 		return false, nil
 	}
+}
+
+// reload builds the current source into a temporary executable, starts it, and
+// returns a sentinel error so Run can exit the old process cleanly.
+func (a *Agent) reload() error {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to find the working directory: %w", err)
+	}
+
+	reloadDir := filepath.Join(os.TempDir(), "atlas-reload")
+	if err := os.MkdirAll(reloadDir, 0755); err != nil {
+		return fmt.Errorf("failed to create reload directory: %w", err)
+	}
+
+	extension := ""
+	if runtime.GOOS == "windows" {
+		extension = ".exe"
+	}
+	reloadedExecutable := filepath.Join(reloadDir, fmt.Sprintf("atlas-%d%s", time.Now().UnixNano(), extension))
+
+	fmt.Println("rebuilding agent...")
+	build := exec.Command("go", "build", "-o", reloadedExecutable, ".")
+	build.Dir = workingDir
+	buildOutput, err := build.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to rebuild agent: %w\n%s", err, strings.TrimSpace(string(buildOutput)))
+	}
+
+	fmt.Println("starting updated agent...")
+	restarted := exec.Command(reloadedExecutable, os.Args[1:]...)
+	restarted.Dir = workingDir
+	restarted.Env = os.Environ()
+	restarted.Stdin = os.Stdin
+	restarted.Stdout = os.Stdout
+	restarted.Stderr = os.Stderr
+	if err := restarted.Start(); err != nil {
+		return fmt.Errorf("failed to start updated agent: %w", err)
+	}
+
+	return errAgentReloading
 }
 
 func (a *Agent) saveSession() error {
