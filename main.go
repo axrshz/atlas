@@ -6,6 +6,11 @@ import (
 	"fmt"
 	"os"
 
+	"agent/internal/agent"
+	"agent/internal/config"
+	"agent/internal/session"
+	"agent/internal/tools"
+
 	"github.com/joho/godotenv"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -24,7 +29,7 @@ func main() {
 	}
 
 	configPath := os.Getenv("AGENT_CONFIG")
-	config, err := LoadConfig(configPath)
+	appConfig, err := config.LoadConfig(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to load config: %s\n", err)
 		os.Exit(1)
@@ -34,11 +39,11 @@ func main() {
 	if sessionsDir == "" {
 		sessionsDir = "./sessions"
 	}
-	sessionManager := NewSessionManager(sessionsDir)
+	sessionManager := session.NewSessionManager(sessionsDir)
 
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
-		option.WithBaseURL(config.BaseURL),
+		option.WithBaseURL(appConfig.BaseURL),
 	)
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -50,8 +55,8 @@ func main() {
 		return scanner.Text(), true
 	}
 
-	agent := NewAgent(&client, getUserMessage, defaultTools(), config, sessionManager)
-	if err := agent.Run(context.Background()); err != nil {
+	chatAgent := agent.NewAgent(&client, getUserMessage, tools.DefaultTools(), appConfig, sessionManager)
+	if err := chatAgent.Run(context.Background()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 	}
 }

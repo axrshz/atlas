@@ -2,6 +2,18 @@
 
 an interactive go coding assistant that uses poolside's openai-compatible chat completions api. it can read, list, create, edit, and delete files inside the working directory.
 
+## project structure
+
+```text
+main.go                 starts the application
+internal/agent/         chat loop, poolside requests, and tool-call handling
+internal/config/        configuration loading and validation
+internal/session/       saved conversation storage and restoration
+internal/tools/         tool descriptions and filesystem/bash implementations
+```
+
+`internal` packages keep implementation details private to this application. `main.go` stays at the root, so you can still run the project with `go run .`.
+
 ## run it
 
 create `.env` from `.env.example`, then set `POOLSIDE_API_KEY`.
