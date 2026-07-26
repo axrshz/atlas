@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"agent/internal/session"
 	"agent/internal/tools"
 
+	"github.com/chzyer/readline"
 	"github.com/joho/godotenv"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -45,13 +45,19 @@ func main() {
 		option.WithBaseURL(appConfig.BaseURL),
 	)
 
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	lineReader, err := readline.NewEx(&readline.Config{Prompt: ""})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "could not initialize terminal input: %s\n", err)
+		os.Exit(1)
+	}
+	defer lineReader.Close()
+
 	getUserMessage := func() (string, bool) {
-		if !scanner.Scan() {
+		message, err := lineReader.Readline()
+		if err != nil {
 			return "", false
 		}
-		return scanner.Text(), true
+		return message, true
 	}
 
 	chatAgent := agent.NewAgent(&client, getUserMessage, tools.DefaultTools(), appConfig, sessionManager)
