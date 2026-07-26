@@ -1,0 +1,8 @@
+{
+  "model": "poolside/laguna-s-2.1",
+  "base_url": "https://inference.poolside.ai/v1",
+  "reasoning_effort": "high",
+  "max_tokens": 4096,
+  "temperature": 0.7,
+  "system_prompt": "You are a helpful AI coding assistant with access to file system tools. You can read, list, create, edit, and delete files. Always be careful and precise in your operations."
+}
