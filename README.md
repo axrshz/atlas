@@ -1,6 +1,6 @@
 ## atlas
 
-a minimal coding agent harness built in go using Poolside Laguna S-2.1 model. it can read, list, create, edit, and delete files inside the working directory. This is built solely for my learning purposes.
+A minimal coding agent harness built in Go using Poolside Laguna S-2.1 model. It can read, list, create, edit, and delete files and also run bash commands inside the working directory. This is built solely for my learning purposes.
 
 ## project structure
 
