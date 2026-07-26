@@ -5,10 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -21,7 +17,13 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 )
 
-var errAgentReloading = errors.New("agent is reloading")
+const commandsMessage = "commands: /new, /sessions, /delete-session <id>, /reload, /help"
+
+// Event is a message for the user interface to display.
+type Event struct {
+	Kind    string
+	Content string
+}
 
 type Agent struct {
 	client         *openai.Client
@@ -30,15 +32,20 @@ type Agent struct {
 	config         config.Config
 	sessionManager *session.SessionManager
 	session        *session.Session
+	onEvent        func(Event)
 }
 
-func NewAgent(client *openai.Client, getUserMessage func() (string, bool), toolDefinitions []tools.ToolDefinition, appConfig config.Config, sessionManager *session.SessionManager) *Agent {
+func NewAgent(client *openai.Client, getUserMessage func() (string, bool), toolDefinitions []tools.ToolDefinition, appConfig config.Config, sessionManager *session.SessionManager, onEvent func(Event)) *Agent {
+	if onEvent == nil {
+		onEvent = func(Event) {}
+	}
 	return &Agent{
 		client:         client,
 		getUserMessage: getUserMessage,
 		tools:          toolDefinitions,
 		config:         appConfig,
 		sessionManager: sessionManager,
+		onEvent:        onEvent,
 	}
 }
 
@@ -47,22 +54,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
-	fmt.Printf("chat with %s (use ctrl-c to quit)\n", a.config.Model)
-	fmt.Println("commands: /new, /sessions, /delete-session <id>, /reload, /help")
+	a.emit("system", "chat with %s (ctrl+c to quit)", a.config.Model)
+	a.emit("system", commandsMessage)
 
 	for {
-		fmt.Print("\033[94myou\033[0m: ")
 		userInput, ok := a.getUserMessage()
 		if !ok {
 			return a.saveSession()
 		}
 
 		if handled, err := a.handleCommand(userInput); handled || err != nil {
-			if errors.Is(err, errAgentReloading) {
-				return nil
-			}
 			if err != nil {
-				fmt.Printf("error: %s\n", err)
+				a.emit("error", "%s", err)
 			}
 			continue
 		}
@@ -88,7 +91,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 
 			if message.Content != "" {
-				fmt.Printf("\033[93mlaguna\033[0m: %s\n", message.Content)
+				a.emit("laguna", "%s", message.Content)
 			}
 			if len(message.ToolCalls) == 0 {
 				break
@@ -129,7 +132,7 @@ func (a *Agent) loadOrCreateSession() error {
 	loadedSession, err := a.sessionManager.GetLatestSession()
 	if err == nil {
 		a.session = loadedSession
-		fmt.Printf("resuming session: %s\n", a.session.Name)
+		a.emit("system", "resuming session: %s", a.session.Name)
 		return a.ensureSystemPrompt()
 	}
 	if !errors.Is(err, session.ErrNoSessions) {
@@ -144,12 +147,12 @@ func (a *Agent) startNewSession(name string) error {
 		return fmt.Errorf("session persistence is not configured")
 	}
 
-	session, err := a.sessionManager.CreateSession(name)
+	newSession, err := a.sessionManager.CreateSession(name)
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
-	a.session = session
-	fmt.Printf("started new session: %s\n", a.session.Name)
+	a.session = newSession
+	a.emit("system", "started new session: %s", a.session.Name)
 	return a.ensureSystemPrompt()
 }
 
@@ -175,10 +178,8 @@ func (a *Agent) handleCommand(input string) (bool, error) {
 	command := strings.TrimSpace(input)
 	switch {
 	case command == "/help":
-		fmt.Println("commands: /new, /sessions, /delete-session <id>, /reload, /help")
+		a.emit("system", commandsMessage)
 		return true, nil
-	case command == "/reload":
-		return true, a.reload()
 	case command == "/new":
 		return true, a.startNewSession("")
 	case command == "/sessions":
@@ -189,8 +190,8 @@ func (a *Agent) handleCommand(input string) (bool, error) {
 		if err != nil {
 			return true, err
 		}
-		for _, session := range sessions {
-			fmt.Printf("%s  %s  %s\n", session.ID, session.UpdatedAt.Format(time.RFC3339), session.Name)
+		for _, savedSession := range sessions {
+			a.emit("system", "%s  %s  %s", savedSession.ID, savedSession.UpdatedAt.Format(time.RFC3339), savedSession.Name)
 		}
 		return true, nil
 	case strings.HasPrefix(command, "/delete-session "):
@@ -210,47 +211,6 @@ func (a *Agent) handleCommand(input string) (bool, error) {
 	default:
 		return false, nil
 	}
-}
-
-// reload builds the current source into a temporary executable, starts it, and
-// returns a sentinel error so Run can exit the old process cleanly.
-func (a *Agent) reload() error {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to find the working directory: %w", err)
-	}
-
-	reloadDir := filepath.Join(os.TempDir(), "atlas-reload")
-	if err := os.MkdirAll(reloadDir, 0755); err != nil {
-		return fmt.Errorf("failed to create reload directory: %w", err)
-	}
-
-	extension := ""
-	if runtime.GOOS == "windows" {
-		extension = ".exe"
-	}
-	reloadedExecutable := filepath.Join(reloadDir, fmt.Sprintf("atlas-%d%s", time.Now().UnixNano(), extension))
-
-	fmt.Println("rebuilding agent...")
-	build := exec.Command("go", "build", "-o", reloadedExecutable, ".")
-	build.Dir = workingDir
-	buildOutput, err := build.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to rebuild agent: %w\n%s", err, strings.TrimSpace(string(buildOutput)))
-	}
-
-	fmt.Println("starting updated agent...")
-	restarted := exec.Command(reloadedExecutable, os.Args[1:]...)
-	restarted.Dir = workingDir
-	restarted.Env = os.Environ()
-	restarted.Stdin = os.Stdin
-	restarted.Stdout = os.Stdout
-	restarted.Stderr = os.Stderr
-	if err := restarted.Start(); err != nil {
-		return fmt.Errorf("failed to start updated agent: %w", err)
-	}
-
-	return errAgentReloading
 }
 
 func (a *Agent) saveSession() error {
@@ -293,7 +253,7 @@ func (a *Agent) executeTool(name string, input json.RawMessage) string {
 			continue
 		}
 
-		fmt.Printf("\033[92mtool\033[0m: %s(%s)\n", name, input)
+		a.emit("tool", "%s(%s)", name, input)
 		response, err := tool.Function(input)
 		if err != nil {
 			return fmt.Sprintf("error: %s", err)
@@ -302,4 +262,8 @@ func (a *Agent) executeTool(name string, input json.RawMessage) string {
 	}
 
 	return "error: tool not found"
+}
+
+func (a *Agent) emit(kind string, format string, args ...any) {
+	a.onEvent(Event{Kind: kind, Content: fmt.Sprintf(format, args...)})
 }

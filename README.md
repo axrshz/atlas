@@ -1,6 +1,6 @@
 ## atlas
 
-A minimal coding agent harness built in Go using Poolside Laguna S-2.1 model. It can read, list, create, edit, and delete files and also run bash commands inside the working directory. This is built solely for my learning purposes.
+A minimal coding agent harness built in Go using Poolside Laguna S-2.1 model. It has a Bubble Tea terminal interface and can read, list, create, edit, and delete files and also run bash commands inside the working directory. This is built solely for my learning purposes.
 
 Next plans include building an evaluation suite, adding traces and making it observable and implementing sandboxing.
 
@@ -12,6 +12,7 @@ internal/agent/         chat loop, poolside requests, and tool-call handling
 internal/config/        configuration loading and validation
 internal/session/       saved conversation storage and restoration
 internal/tools/         tool descriptions and filesystem/bash implementations
+internal/tui/           Bubble Tea terminal interface
 ```
 
 `internal` packages keep implementation details private to this application. `main.go` stays at the root, so you can still run the project with `go run .`.
