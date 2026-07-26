@@ -2,6 +2,8 @@
 
 A minimal coding agent harness built in Go using Poolside Laguna S-2.1 model. It can read, list, create, edit, and delete files and also run bash commands inside the working directory. This is built solely for my learning purposes.
 
+Next plans include building an evaluation suite, adding traces and making it observable and implementing sandboxing.
+
 ## project structure
 
 ```text
