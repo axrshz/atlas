@@ -1,29 +1,13 @@
 package tools
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
-
-const (
-	bashTimeout           = 30 * time.Second
-	maxCommandOutputBytes = 64 * 1024
-)
-
-var allowedBashCommands = map[string]struct{}{
-	"go test ./...":  {},
-	"go vet ./...":   {},
-	"go build ./...": {},
-	"gofmt -w *.go":  {},
-	"pwd":            {},
-}
 
 type ReadFileInput struct {
 	Path string `json:"path"`
@@ -197,98 +181,24 @@ func Bash(input json.RawMessage) (string, error) {
 	if command == "" {
 		return "", fmt.Errorf("command is required")
 	}
-	if _, ok := allowedBashCommands[command]; !ok {
-		return "", fmt.Errorf("command %q is not allowed; allowed commands: go test ./..., go vet ./..., go build ./..., gofmt -w *.go, pwd", command)
-	}
 
 	root, err := filepath.Abs(".")
 	if err != nil {
 		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), bashTimeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd := exec.Command("bash", "-c", command)
 	cmd.Dir = root
-	cmd.Env = safeCommandEnvironment()
+	cmd.Env = os.Environ()
 
-	var stdout, stderr limitedBuffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	stdoutStr := stdout.String()
-	stderrStr := stderr.String()
-
-	var result strings.Builder
-	if stdoutStr != "" {
-		result.WriteString(stdoutStr)
-	}
-	if stderrStr != "" {
-		if result.Len() > 0 {
-			result.WriteString("\n")
-		}
-		result.WriteString("stderr: ")
-		result.WriteString(stderrStr)
-	}
-	if stdout.truncated || stderr.truncated {
-		if result.Len() > 0 {
-			result.WriteString("\n")
-		}
-		result.WriteString("output truncated after 64 kb")
-	}
-
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if result.Len() > 0 {
-			result.WriteString("\n")
+		if len(output) == 0 {
+			return fmt.Sprintf("error: %s", err), nil
 		}
-		if ctx.Err() == context.DeadlineExceeded {
-			result.WriteString("error: command timed out after 30 seconds")
-		} else {
-			result.WriteString(fmt.Sprintf("error: %s", err.Error()))
-		}
+		return fmt.Sprintf("%s\nerror: %s", output, err), nil
 	}
-
-	return result.String(), nil
-}
-
-type limitedBuffer struct {
-	bytes.Buffer
-	truncated bool
-}
-
-func (buffer *limitedBuffer) Write(data []byte) (int, error) {
-	remaining := maxCommandOutputBytes - buffer.Len()
-	if remaining <= 0 {
-		buffer.truncated = true
-		return len(data), nil
-	}
-	if len(data) > remaining {
-		_, _ = buffer.Buffer.Write(data[:remaining])
-		buffer.truncated = true
-		return len(data), nil
-	}
-	return buffer.Buffer.Write(data)
-}
-
-func safeCommandEnvironment() []string {
-	environment := os.Environ()
-	filtered := make([]string, 0, len(environment))
-	for _, entry := range environment {
-		key, _, _ := strings.Cut(entry, "=")
-		upperKey := strings.ToUpper(key)
-		if strings.Contains(upperKey, "API_KEY") ||
-			strings.Contains(upperKey, "ACCESS_KEY") ||
-			strings.Contains(upperKey, "TOKEN") ||
-			strings.Contains(upperKey, "SECRET") ||
-			strings.Contains(upperKey, "PASSWORD") ||
-			strings.Contains(upperKey, "CREDENTIAL") {
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered
+	return string(output), nil
 }
 
 func workspacePath(relativePath string) (string, error) {

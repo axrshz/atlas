@@ -69,6 +69,6 @@ the agent resumes the most recently updated session at startup and saves after e
 - `list_files` — recursively list a directory
 - `edit_file` — replace an exact string or create a new file
 - `delete_file` — delete a file
-- `bash` — run one approved development command: `go test ./...`, `go vet ./...`, `go build ./...`, `gofmt -w *.go`, or `pwd`
+- `bash` — execute any bash command in the working directory
 
-all filesystem tools reject path traversal and protect `.env` from reads, edits, and deletion. the bash tool does not receive api keys or other sensitive environment variables.
+the filesystem tools reject path traversal and protect `.env` from reads, edits, and deletion. the bash tool has unrestricted shell access and can bypass those protections.

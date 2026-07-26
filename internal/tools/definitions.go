@@ -77,15 +77,13 @@ var DeleteFileDefinition = ToolDefinition{
 
 var BashDefinition = ToolDefinition{
 	Name: "bash",
-	Description: `Run an approved development command in the working directory.
+	Description: `Execute a bash command in the working directory.
 
-Allowed commands are exactly: go test ./..., go vet ./..., go build ./..., gofmt -w *.go, and pwd.
-
-Commands have a 30-second timeout. Sensitive environment variables, including API keys, are not passed to the command.`,
+The command inherits the agent process environment and has the same filesystem and system access as the user running the agent.`,
 	InputSchema: objectSchema(map[string]any{
 		"command": map[string]any{
 			"type":        "string",
-			"description": "One approved command exactly as listed in the tool description.",
+			"description": "The bash command to execute.",
 		},
 	}, []string{"command"}),
 	Function: Bash,
