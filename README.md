@@ -1,6 +1,6 @@
-# poolside agent
+## atlas
 
-an interactive go coding assistant that uses poolside's openai-compatible chat completions api. it can read, list, create, edit, and delete files inside the working directory.
+a minimal coding agent harness built in go using Poolside Laguna S-2.1 model. it can read, list, create, edit, and delete files inside the working directory. This is built solely for my learning purposes.
 
 ## project structure
 
