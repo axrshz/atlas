@@ -6,7 +6,7 @@ a minimal coding agent harness built in golang. without any framework.
 
 - 100% written in go
 - bubble tea minimal tui
-- supports poolside laguna s-2.1
+- supports poolside laguna models.
 - read, edit, delete, and list file tools
 - bash execution tool
 - web search and web fetch tools using the tavily api
