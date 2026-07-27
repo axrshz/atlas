@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // EventMsg adds one agent event to the conversation view.
@@ -61,12 +62,13 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case tea.WindowSizeMsg:
+		wasAtBottom := m.conversation.AtBottom()
 		m.width = message.Width
 		m.height = message.Height
 		m.input.Width = max(1, message.Width-6)
 		m.conversation.Width = max(1, message.Width)
 		m.conversation.Height = max(1, message.Height-5)
-		m.refreshConversation()
+		m.refreshConversation(wasAtBottom)
 		return m, nil
 
 	case EventMsg:
@@ -87,10 +89,19 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.restartExecutable = message.executable
 		return m, tea.Quit
 
+	case tea.MouseMsg:
+		var command tea.Cmd
+		m.conversation, command = m.conversation.Update(message)
+		return m, command
+
 	case tea.KeyMsg:
 		switch message.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "pgup", "pgdown":
+			var command tea.Cmd
+			m.conversation, command = m.conversation.Update(message)
+			return m, command
 		case "enter":
 			input := strings.TrimSpace(m.input.Value())
 			if input == "" {
@@ -119,7 +130,7 @@ func (m Model) View() string {
 	}
 
 	return fmt.Sprintf(
-		"atlas\n\n%s\n\n%s\nctrl+c quit | /reload rebuild and restart",
+		"atlas\n\n%s\n\n%s\npgup/pgdown or mouse wheel scroll | ctrl+c quit | /reload rebuild and restart",
 		m.conversation.View(),
 		m.input.View(),
 	)
@@ -131,17 +142,23 @@ func (m Model) RestartExecutable() string {
 }
 
 func (m *Model) addEvent(event EventMsg) {
+	wasAtBottom := m.conversation.AtBottom()
 	m.events = append(m.events, event)
-	m.refreshConversation()
+	m.refreshConversation(wasAtBottom)
 }
 
-func (m *Model) refreshConversation() {
+func (m *Model) refreshConversation(followBottom bool) {
 	entries := make([]string, 0, len(m.events))
 	for _, event := range m.events {
-		entries = append(entries, fmt.Sprintf("%s: %s", event.Kind, event.Content))
+		entry := fmt.Sprintf("%s: %s", event.Kind, event.Content)
+		entries = append(entries, ansi.Wrap(entry, max(1, m.conversation.Width), " "))
 	}
 	m.conversation.SetContent(strings.Join(entries, "\n\n"))
-	m.conversation.GotoBottom()
+	if followBottom {
+		m.conversation.GotoBottom()
+	} else {
+		m.conversation.SetYOffset(m.conversation.YOffset)
+	}
 }
 
 func (m Model) reloadCommand() tea.Cmd {

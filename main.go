@@ -34,17 +34,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	appConfig, err := config.LoadConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load config: %s\n", err)
-		os.Exit(1)
-	}
-
-	sessionsDir := os.Getenv("AGENT_SESSIONS_DIR")
-	if sessionsDir == "" {
-		sessionsDir = "./sessions"
-	}
-	sessionManager := session.NewSessionManager(sessionsDir)
+	appConfig := config.DefaultConfig()
+	sessionManager := session.NewSessionManager(appConfig.SessionsDir)
 
 	client := openai.NewClient(
 		option.WithAPIKey(apiKey),
@@ -68,7 +59,7 @@ func main() {
 	)
 
 	model := tui.New(inputCh, buildReloadedAgent)
-	program = tea.NewProgram(model, tea.WithAltScreen())
+	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	go func() {
 		program.Send(tui.AgentDoneMsg{Err: chatAgent.Run(context.Background())})

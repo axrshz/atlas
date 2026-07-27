@@ -89,6 +89,41 @@ The command inherits the agent process environment and has the same filesystem a
 	Function: Bash,
 }
 
+var WebSearchDefinition = ToolDefinition{
+	Name:        "web_search",
+	Description: "Search the web for current information. Returns ranked results with titles, URLs, and relevant content snippets.",
+	InputSchema: objectSchema(map[string]any{
+		"query": map[string]any{
+			"type":        "string",
+			"description": "The search query.",
+		},
+		"max_results": map[string]any{
+			"type":        "integer",
+			"description": "Maximum number of results to return. Defaults to 5 and cannot exceed 10.",
+			"minimum":     1,
+			"maximum":     10,
+		},
+		"topic": map[string]any{
+			"type":        "string",
+			"description": "Search category. Defaults to general.",
+			"enum":        []string{"general", "news", "finance"},
+		},
+	}, []string{"query"}),
+	Function: WebSearch,
+}
+
+var WebFetchDefinition = ToolDefinition{
+	Name:        "web_fetch",
+	Description: "Fetch a web page and return its main content as markdown. Use web_search first when you do not already have a URL.",
+	InputSchema: objectSchema(map[string]any{
+		"url": map[string]any{
+			"type":        "string",
+			"description": "The full http or https URL to fetch.",
+		},
+	}, []string{"url"}),
+	Function: WebFetch,
+}
+
 // DefaultTools returns every tool this agent exposes to the model.
 func DefaultTools() []ToolDefinition {
 	return []ToolDefinition{
@@ -97,6 +132,8 @@ func DefaultTools() []ToolDefinition {
 		EditFileDefinition,
 		DeleteFileDefinition,
 		BashDefinition,
+		WebSearchDefinition,
+		WebFetchDefinition,
 	}
 }
 
