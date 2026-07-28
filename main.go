@@ -34,7 +34,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	appConfig := config.DefaultConfig()
+	appConfig := config.DefaultConfig
 	sessionManager := session.NewSessionManager(appConfig.SessionsDir)
 
 	client := openai.NewClient(

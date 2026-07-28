@@ -11,7 +11,7 @@ a minimal coding agent harness built in golang. without any framework.
 - bash execution tool
 - web search and web fetch tools using the tavily api
 
-next plans include building evaluations, adding traces, improving observability, and implementing sandboxing.
+next plans include building evaluations, adding traces, improving observability, and adding sandboxing and subagents.
 
 ## project structure
 
