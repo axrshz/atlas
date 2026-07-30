@@ -1,6 +1,6 @@
 ## atlas
 
-a minimal coding agent harness built in golang. without any framework.
+a minimal coding agent harness built in golang. wip.
 
 ## features
 
