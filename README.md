@@ -11,7 +11,13 @@ a minimal coding agent harness built in golang. wip.
 - bash execution tool
 - web search and web fetch tools using the tavily api
 
-next plans include building evaluations, adding traces, improving observability, and adding sandboxing and subagents.
+further plans:  
+evaluations  
+traces and observability  
+sandboxing  
+memory layer  
+guardrails  
+subagents
 
 ## project structure
 
