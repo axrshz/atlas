@@ -42,7 +42,7 @@ func TestAgentOutputWrapsToViewportWidth(t *testing.T) {
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 20, Height: 12})
 	model = updated.(Model)
 	updated, _ = model.Update(EventMsg{
-		Kind:    "laguna",
+		Kind:    "assistant",
 		Content: "abcdefghijklmnopqrstuvwxyz0123456789",
 	})
 	model = updated.(Model)
@@ -90,7 +90,7 @@ func TestNewOutputPreservesManualScrollPosition(t *testing.T) {
 	model = updated.(Model)
 	scrolledOffset := model.conversation.YOffset
 
-	updated, _ = model.Update(EventMsg{Kind: "laguna", Content: "new output"})
+	updated, _ = model.Update(EventMsg{Kind: "assistant", Content: "new output"})
 	model = updated.(Model)
 
 	if model.conversation.YOffset != scrolledOffset {
@@ -106,7 +106,7 @@ func populatedScrollableModel(t *testing.T) Model {
 
 	for index := range 12 {
 		updated, _ = model.Update(EventMsg{
-			Kind:    "laguna",
+			Kind:    "assistant",
 			Content: strings.Repeat(string(rune('a'+index)), 30),
 		})
 		model = updated.(Model)

@@ -28,13 +28,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	apiKey := os.Getenv("POOLSIDE_API_KEY")
+	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "missing POOLSIDE_API_KEY; add it to .env")
+		fmt.Fprintln(os.Stderr, "missing OPENROUTER_API_KEY; add it to .env")
 		os.Exit(1)
 	}
 
 	appConfig := config.DefaultConfig
+	if model := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")); model != "" {
+		appConfig.Model = model
+	}
 	sessionManager := session.NewSessionManager(appConfig.SessionsDir)
 
 	client := openai.NewClient(

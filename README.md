@@ -6,7 +6,7 @@ a minimal coding agent harness built in golang. wip.
 
 - 100% written in go
 - bubble tea minimal tui
-- supports poolside laguna models.
+- supports openrouter models
 - read, edit, delete, and list file tools
 - bash execution tool
 - web search and web fetch tools using the tavily api
@@ -24,7 +24,7 @@ further plans:
 
 ```text
 main.go                 starts the application
-internal/agent/         chat loop, poolside requests, and tool-call handling
+internal/agent/         chat loop, openrouter requests, and tool-call handling
 internal/config/        default application settings
 internal/session/       saved conversation storage and restoration
 internal/tools/         tool descriptions and filesystem/bash implementations
@@ -35,7 +35,7 @@ internal/tui/           bubble tea terminal interface
 
 ## run it
 
-create `.env` from `.env.example`, then set `POOLSIDE_API_KEY` and `TAVILY_API_KEY`.
+create `.env` from `.env.example`, then set `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, and `TAVILY_API_KEY`.
 
 ```powershell
 go run .
@@ -52,8 +52,8 @@ go build -o agent.exe .
 
 all application settings are defined in `internal/config/config.go`:
 
-- model: `poolside/laguna-s-2.1`
-- base url: `https://inference.poolside.ai/v1`
+- model: `openrouter/auto`, overridden by `OPENROUTER_MODEL`
+- base url: `https://openrouter.ai/api/v1`
 - reasoning effort: `high`
 - maximum completion tokens: `4096`
 - temperature: `0.7`

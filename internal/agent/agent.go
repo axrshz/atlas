@@ -81,7 +81,7 @@ func (a *Agent) Run(ctx context.Context) error {
 				return err
 			}
 			if len(response.Choices) == 0 {
-				return fmt.Errorf("poolside returned no completion choices")
+				return fmt.Errorf("openrouter returned no completion choices")
 			}
 
 			message := response.Choices[0].Message
@@ -91,7 +91,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 
 			if message.Content != "" {
-				a.emit("laguna", "%s", message.Content)
+				a.emit("assistant", "%s", message.Content)
 			}
 			if len(message.ToolCalls) == 0 {
 				break
