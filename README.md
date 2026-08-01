@@ -57,6 +57,8 @@ all application settings are defined in `internal/config/config.go`:
 - reasoning effort: `high`
 - maximum completion tokens: `4096`
 - temperature: `0.7`
+- tool timeout: `2 minutes`
+- maximum tool output: `32 KiB`
 - sessions directory: `./sessions`
 
 ## sessions

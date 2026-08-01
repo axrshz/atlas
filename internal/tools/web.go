@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,7 +50,7 @@ type WebSearchResult struct {
 	PublishedDate string  `json:"published_date,omitempty"`
 }
 
-func WebSearch(input json.RawMessage) (string, error) {
+func WebSearch(ctx context.Context, input json.RawMessage) (string, error) {
 	var args WebSearchInput
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid web_search input: %w", err)
@@ -79,7 +80,7 @@ func WebSearch(input json.RawMessage) (string, error) {
 		Topic:       args.Topic,
 	}
 	var response webSearchResponse
-	if err := callTavily("/search", request, &response); err != nil {
+	if err := callTavily(ctx, "/search", request, &response); err != nil {
 		return "", err
 	}
 
@@ -116,7 +117,7 @@ type WebFetchResult struct {
 	Truncated bool   `json:"truncated"`
 }
 
-func WebFetch(input json.RawMessage) (string, error) {
+func WebFetch(ctx context.Context, input json.RawMessage) (string, error) {
 	var args WebFetchInput
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid web_fetch input: %w", err)
@@ -134,7 +135,7 @@ func WebFetch(input json.RawMessage) (string, error) {
 		Format:       "markdown",
 	}
 	var response webFetchResponse
-	if err := callTavily("/extract", request, &response); err != nil {
+	if err := callTavily(ctx, "/extract", request, &response); err != nil {
 		return "", err
 	}
 	if len(response.Results) == 0 {
@@ -162,7 +163,7 @@ func WebFetch(input json.RawMessage) (string, error) {
 	return string(result), nil
 }
 
-func callTavily(path string, requestBody any, responseBody any) error {
+func callTavily(ctx context.Context, path string, requestBody any, responseBody any) error {
 	apiKey := strings.TrimSpace(os.Getenv("TAVILY_API_KEY"))
 	if apiKey == "" {
 		return fmt.Errorf("missing TAVILY_API_KEY; add it to .env")
@@ -173,7 +174,7 @@ func callTavily(path string, requestBody any, responseBody any) error {
 		return fmt.Errorf("failed to encode tavily request: %w", err)
 	}
 
-	request, err := http.NewRequest(http.MethodPost, tavilyBaseURL+path, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, tavilyBaseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create tavily request: %w", err)
 	}

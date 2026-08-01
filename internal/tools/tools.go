@@ -1,19 +1,26 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
+
+const maxCommandOutput = 32 << 10
 
 type ReadFileInput struct {
 	Path string `json:"path"`
 }
 
-func ReadFile(input json.RawMessage) (string, error) {
+func ReadFile(ctx context.Context, input json.RawMessage) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	var args ReadFileInput
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid read_file input: %w", err)
@@ -41,7 +48,7 @@ type ListFilesInput struct {
 	Path string `json:"path"`
 }
 
-func ListFiles(input json.RawMessage) (string, error) {
+func ListFiles(ctx context.Context, input json.RawMessage) (string, error) {
 	var args ListFilesInput
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid list_files input: %w", err)
@@ -58,6 +65,9 @@ func ListFiles(input json.RawMessage) (string, error) {
 
 	var files []string
 	err = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
 		if err != nil {
 			return err
 		}
@@ -93,7 +103,10 @@ type EditFileInput struct {
 	NewStr string `json:"new_str"`
 }
 
-func EditFile(input json.RawMessage) (string, error) {
+func EditFile(ctx context.Context, input json.RawMessage) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	var args EditFileInput
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid edit_file input: %w", err)
@@ -145,7 +158,10 @@ type DeleteFileInput struct {
 	Path string `json:"path"`
 }
 
-func DeleteFile(input json.RawMessage) (string, error) {
+func DeleteFile(ctx context.Context, input json.RawMessage) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	var args DeleteFileInput
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid delete_file input: %w", err)
@@ -172,7 +188,7 @@ type BashInput struct {
 	Command string `json:"command"`
 }
 
-func Bash(input json.RawMessage) (string, error) {
+func Bash(ctx context.Context, input json.RawMessage) (string, error) {
 	var args BashInput
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid bash input: %w", err)
@@ -187,18 +203,66 @@ func Bash(input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	cmd := exec.Command("bash", "-c", command)
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = root
 	cmd.Env = os.Environ()
+	output := newLimitedBuffer(maxCommandOutput)
+	cmd.Stdout = output
+	cmd.Stderr = output
 
-	output, err := cmd.CombinedOutput()
+	err = cmd.Run()
+	result := output.String()
+	if output.Truncated() {
+		result += "\n...[command output truncated]"
+	}
 	if err != nil {
-		if len(output) == 0 {
+		if result == "" {
 			return fmt.Sprintf("error: %s", err), nil
 		}
-		return fmt.Sprintf("%s\nerror: %s", output, err), nil
+		return fmt.Sprintf("%s\nerror: %s", result, err), nil
 	}
-	return string(output), nil
+	return result, nil
+}
+
+type limitedBuffer struct {
+	mu        sync.Mutex
+	data      []byte
+	limit     int
+	truncated bool
+}
+
+func newLimitedBuffer(limit int) *limitedBuffer {
+	return &limitedBuffer{data: make([]byte, 0, limit), limit: limit}
+}
+
+func (buffer *limitedBuffer) Write(data []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+
+	written := len(data)
+	remaining := buffer.limit - len(buffer.data)
+	if remaining > 0 {
+		if remaining > len(data) {
+			remaining = len(data)
+		}
+		buffer.data = append(buffer.data, data[:remaining]...)
+	}
+	if remaining < len(data) {
+		buffer.truncated = true
+	}
+	return written, nil
+}
+
+func (buffer *limitedBuffer) String() string {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return string(buffer.data)
+}
+
+func (buffer *limitedBuffer) Truncated() bool {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.truncated
 }
 
 func workspacePath(relativePath string) (string, error) {

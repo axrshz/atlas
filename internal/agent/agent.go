@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"agent/internal/config"
 	"agent/internal/session"
@@ -104,6 +105,7 @@ func (a *Agent) Run(ctx context.Context) error {
 				}
 
 				result := a.executeTool(
+					ctx,
 					functionCall.Function.Name,
 					json.RawMessage(functionCall.Function.Arguments),
 				)
@@ -247,21 +249,44 @@ func (a *Agent) runInference(ctx context.Context, conversation []openai.ChatComp
 	)
 }
 
-func (a *Agent) executeTool(name string, input json.RawMessage) string {
+func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage) string {
 	for _, tool := range a.tools {
 		if tool.Name != name {
 			continue
 		}
 
 		a.emit("tool", "%s(%s)", name, input)
-		response, err := tool.Function(input)
-		if err != nil {
-			return fmt.Sprintf("error: %s", err)
+		toolCtx := ctx
+		cancel := func() {}
+		if a.config.ToolTimeout > 0 {
+			toolCtx, cancel = context.WithTimeout(ctx, a.config.ToolTimeout)
 		}
-		return response
+		response, err := tool.Function(toolCtx, input)
+		cancel()
+		if err != nil {
+			return truncateToolOutput(fmt.Sprintf("error: %s", err), a.config.MaxToolOutput)
+		}
+		return truncateToolOutput(response, a.config.MaxToolOutput)
 	}
 
 	return "error: tool not found"
+}
+
+func truncateToolOutput(output string, maxBytes int) string {
+	if maxBytes <= 0 || len(output) <= maxBytes {
+		return output
+	}
+
+	const suffix = "\n...[tool output truncated]"
+	if maxBytes <= len(suffix) {
+		return suffix[:maxBytes]
+	}
+
+	end := maxBytes - len(suffix)
+	for end > 0 && end < len(output) && !utf8.RuneStart(output[end]) {
+		end--
+	}
+	return output[:end] + suffix
 }
 
 func (a *Agent) emit(kind string, format string, args ...any) {

@@ -23,6 +23,9 @@ import (
 )
 
 func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "could not load .env: %s\n", err)
 		os.Exit(1)
@@ -65,10 +68,11 @@ func main() {
 	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	go func() {
-		program.Send(tui.AgentDoneMsg{Err: chatAgent.Run(context.Background())})
+		program.Send(tui.AgentDoneMsg{Err: chatAgent.Run(ctx)})
 	}()
 
 	finalModel, err := program.Run()
+	cancel()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not run terminal interface: %s\n", err)
 		return

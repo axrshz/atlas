@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -31,7 +32,7 @@ func TestWebSearch(t *testing.T) {
 	defer server.Close()
 
 	restoreTavilyTestState(t, server.URL)
-	result, err := WebSearch([]byte(`{"query":"go agents","max_results":3}`))
+	result, err := WebSearch(context.Background(), []byte(`{"query":"go agents","max_results":3}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestWebFetch(t *testing.T) {
 	defer server.Close()
 
 	restoreTavilyTestState(t, server.URL)
-	result, err := WebFetch([]byte(`{"url":"https://example.com/page"}`))
+	result, err := WebFetch(context.Background(), []byte(`{"url":"https://example.com/page"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestWebFetch(t *testing.T) {
 
 func TestWebToolsRequireTavilyAPIKey(t *testing.T) {
 	t.Setenv("TAVILY_API_KEY", "")
-	_, err := WebSearch([]byte(`{"query":"test"}`))
+	_, err := WebSearch(context.Background(), []byte(`{"query":"test"}`))
 	if err == nil || !strings.Contains(err.Error(), "missing TAVILY_API_KEY") {
 		t.Fatalf("error = %v", err)
 	}

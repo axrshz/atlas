@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/openai/openai-go/v3/shared"
@@ -12,7 +13,7 @@ type ToolDefinition struct {
 	Name        string
 	Description string
 	InputSchema shared.FunctionParameters
-	Function    func(input json.RawMessage) (string, error)
+	Function    func(context.Context, json.RawMessage) (string, error)
 }
 
 var ReadFileDefinition = ToolDefinition{
