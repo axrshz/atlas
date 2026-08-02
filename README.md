@@ -16,7 +16,7 @@ further plans:
 - evaluations
 - traces and observability
 - sandboxing
-- memory layer
+- persistent memory
 - guardrails
 - subagents
 
