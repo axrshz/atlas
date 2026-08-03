@@ -22,8 +22,19 @@ const commandsMessage = "commands: /new, /sessions, /delete-session <id>, /reloa
 
 // Event is a message for the user interface to display.
 type Event struct {
-	Kind    string
-	Content string
+	Kind      string        `json:"kind"`
+	Content   string        `json:"content"`
+	Timestamp time.Time     `json:"timestamp"`
+	Duration  time.Duration `json:"duration,omitempty"`
+}
+
+// RunResult is the outcome of one user turn through the agentic loop.
+type RunResult struct {
+	FinalResponse    string `json:"final_response"`
+	Steps            int    `json:"steps"`
+	PromptTokens     int64  `json:"prompt_tokens"`
+	CompletionTokens int64  `json:"completion_tokens"`
+	TotalTokens      int64  `json:"total_tokens"`
 }
 
 type Agent struct {
@@ -71,48 +82,78 @@ func (a *Agent) Run(ctx context.Context) error {
 			continue
 		}
 
-		a.session.Messages = append(a.session.Messages, openai.UserMessage(userInput))
-		if err := a.saveSession(); err != nil {
+		if _, err := a.runTurn(ctx, userInput); err != nil {
 			return err
 		}
+	}
+}
 
-		for {
-			response, err := a.runInference(ctx, a.session.Messages)
-			if err != nil {
-				return err
-			}
-			if len(response.Choices) == 0 {
-				return fmt.Errorf("openrouter returned no completion choices")
+// RunTask runs one task without the interactive input loop. A fresh Agent
+// should be created for every independent task or evaluation trial.
+func (a *Agent) RunTask(ctx context.Context, task string) (RunResult, error) {
+	if strings.TrimSpace(task) == "" {
+		return RunResult{}, fmt.Errorf("task is required")
+	}
+	if a.session == nil {
+		if err := a.loadOrCreateSession(); err != nil {
+			return RunResult{}, err
+		}
+	}
+	return a.runTurn(ctx, task)
+}
+
+func (a *Agent) runTurn(ctx context.Context, userInput string) (RunResult, error) {
+	a.session.Messages = append(a.session.Messages, openai.UserMessage(userInput))
+	if err := a.saveSession(); err != nil {
+		return RunResult{}, err
+	}
+
+	result := RunResult{}
+	for {
+		if a.config.MaxAgentSteps > 0 && result.Steps >= a.config.MaxAgentSteps {
+			return result, fmt.Errorf("agent exceeded the maximum of %d model steps", a.config.MaxAgentSteps)
+		}
+		result.Steps++
+
+		response, err := a.runInference(ctx, a.session.Messages)
+		if err != nil {
+			return result, err
+		}
+		if len(response.Choices) == 0 {
+			return result, fmt.Errorf("openrouter returned no completion choices")
+		}
+		result.PromptTokens += response.Usage.PromptTokens
+		result.CompletionTokens += response.Usage.CompletionTokens
+		result.TotalTokens += response.Usage.TotalTokens
+
+		message := response.Choices[0].Message
+		a.session.Messages = append(a.session.Messages, message.ToParam())
+		if err := a.saveSession(); err != nil {
+			return result, err
+		}
+
+		if message.Content != "" {
+			a.emit("assistant", "%s", message.Content)
+		}
+		if len(message.ToolCalls) == 0 {
+			result.FinalResponse = message.Content
+			return result, nil
+		}
+
+		for _, toolCall := range message.ToolCalls {
+			functionCall, ok := toolCall.AsAny().(openai.ChatCompletionMessageFunctionToolCall)
+			if !ok {
+				return result, fmt.Errorf("unsupported tool call type %q", toolCall.Type)
 			}
 
-			message := response.Choices[0].Message
-			a.session.Messages = append(a.session.Messages, message.ToParam())
+			toolResult := a.executeTool(
+				ctx,
+				functionCall.Function.Name,
+				json.RawMessage(functionCall.Function.Arguments),
+			)
+			a.session.Messages = append(a.session.Messages, openai.ToolMessage(toolResult, functionCall.ID))
 			if err := a.saveSession(); err != nil {
-				return err
-			}
-
-			if message.Content != "" {
-				a.emit("assistant", "%s", message.Content)
-			}
-			if len(message.ToolCalls) == 0 {
-				break
-			}
-
-			for _, toolCall := range message.ToolCalls {
-				functionCall, ok := toolCall.AsAny().(openai.ChatCompletionMessageFunctionToolCall)
-				if !ok {
-					return fmt.Errorf("unsupported tool call type %q", toolCall.Type)
-				}
-
-				result := a.executeTool(
-					ctx,
-					functionCall.Function.Name,
-					json.RawMessage(functionCall.Function.Arguments),
-				)
-				a.session.Messages = append(a.session.Messages, openai.ToolMessage(result, functionCall.ID))
-				if err := a.saveSession(); err != nil {
-					return err
-				}
+				return result, err
 			}
 		}
 	}
@@ -256,6 +297,7 @@ func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMess
 		}
 
 		a.emit("tool", "%s(%s)", name, input)
+		startedAt := time.Now()
 		toolCtx := ctx
 		cancel := func() {}
 		if a.config.ToolTimeout > 0 {
@@ -264,9 +306,12 @@ func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMess
 		response, err := tool.Function(toolCtx, input)
 		cancel()
 		if err != nil {
-			return truncateToolOutput(fmt.Sprintf("error: %s", err), a.config.MaxToolOutput)
+			response = truncateToolOutput(fmt.Sprintf("error: %s", err), a.config.MaxToolOutput)
+		} else {
+			response = truncateToolOutput(response, a.config.MaxToolOutput)
 		}
-		return truncateToolOutput(response, a.config.MaxToolOutput)
+		a.emitDuration("tool_result", time.Since(startedAt), "%s: %s", name, response)
+		return response
 	}
 
 	return "error: tool not found"
@@ -290,5 +335,9 @@ func truncateToolOutput(output string, maxBytes int) string {
 }
 
 func (a *Agent) emit(kind string, format string, args ...any) {
-	a.onEvent(Event{Kind: kind, Content: fmt.Sprintf(format, args...)})
+	a.onEvent(Event{Kind: kind, Content: fmt.Sprintf(format, args...), Timestamp: time.Now()})
+}
+
+func (a *Agent) emitDuration(kind string, duration time.Duration, format string, args ...any) {
+	a.onEvent(Event{Kind: kind, Content: fmt.Sprintf(format, args...), Timestamp: time.Now(), Duration: duration})
 }
