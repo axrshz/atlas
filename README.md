@@ -9,16 +9,7 @@ a minimal coding agent harness built in golang. wip.
 - supports openrouter
 - read, edit, delete, and list file tools
 - bash execution tool
-- web search and web fetch tools using the tavily api
-
-further plans:
-
-- evaluations
-- traces and observability
-- sandboxing
-- persistent memory
-- guardrails
-- subagents
+- web search and web fetch tools using tavily
 
 ## project structure
 
