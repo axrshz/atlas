@@ -3,9 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/openai/openai-go/v3/shared"
 )
@@ -81,13 +78,13 @@ var DeleteFileDefinition = ToolDefinition{
 
 var BashDefinition = ToolDefinition{
 	Name: "bash",
-	Description: `Execute a command in the working directory using bash when available or the native system shell.
+	Description: `Execute a bash command in the working directory.
 
 The command inherits the agent process environment and has the same filesystem and system access as the user running the agent.`,
 	InputSchema: objectSchema(map[string]any{
 		"command": map[string]any{
 			"type":        "string",
-			"description": "The shell command to execute.",
+			"description": "The bash command to execute.",
 		},
 	}, []string{"command"}),
 	Function: Bash,
@@ -139,36 +136,6 @@ func DefaultTools() []ToolDefinition {
 		WebSearchDefinition,
 		WebFetchDefinition,
 	}
-}
-
-// DefaultToolsAt returns the production tool set bound to one workspace root.
-// Binding the root through context lets independent agent trials run without
-// changing the process working directory.
-func DefaultToolsAt(root string) ([]ToolDefinition, error) {
-	absoluteRoot, err := filepath.Abs(root)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve workspace root: %w", err)
-	}
-	info, err := os.Stat(absoluteRoot)
-	if err != nil {
-		return nil, fmt.Errorf("failed to inspect workspace root: %w", err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("workspace root must be a directory")
-	}
-
-	definitions := DefaultTools()
-	for index := range definitions {
-		if definitions[index].Name == WebSearchDefinition.Name || definitions[index].Name == WebFetchDefinition.Name {
-			continue
-		}
-		toolFunction := definitions[index].Function
-		definitions[index].Function = func(ctx context.Context, input json.RawMessage) (string, error) {
-			ctx = context.WithValue(ctx, workspaceRootContextKey{}, absoluteRoot)
-			return toolFunction(ctx, input)
-		}
-	}
-	return definitions, nil
 }
 
 func objectSchema(properties map[string]any, required []string) shared.FunctionParameters {

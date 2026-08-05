@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 )
@@ -17,8 +16,6 @@ const maxCommandOutput = 32 << 10
 type ReadFileInput struct {
 	Path string `json:"path"`
 }
-
-type workspaceRootContextKey struct{}
 
 func ReadFile(ctx context.Context, input json.RawMessage) (string, error) {
 	if err := ctx.Err(); err != nil {
@@ -32,7 +29,7 @@ func ReadFile(ctx context.Context, input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("path is required")
 	}
 
-	filePath, err := workspacePath(ctx, args.Path)
+	filePath, err := workspacePath(args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -61,7 +58,7 @@ func ListFiles(ctx context.Context, input json.RawMessage) (string, error) {
 	if args.Path != "" {
 		dir = args.Path
 	}
-	dirPath, err := workspacePath(ctx, dir)
+	dirPath, err := workspacePath(dir)
 	if err != nil {
 		return "", err
 	}
@@ -118,7 +115,7 @@ func EditFile(ctx context.Context, input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("invalid input parameters")
 	}
 
-	filePath, err := workspacePath(ctx, args.Path)
+	filePath, err := workspacePath(args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -173,7 +170,7 @@ func DeleteFile(ctx context.Context, input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("path is required")
 	}
 
-	filePath, err := workspacePath(ctx, args.Path)
+	filePath, err := workspacePath(args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -201,12 +198,12 @@ func Bash(ctx context.Context, input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("command is required")
 	}
 
-	root, err := workspaceRoot(ctx)
+	root, err := filepath.Abs(".")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	cmd := shellCommand(ctx, command)
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = root
 	cmd.Env = os.Environ()
 	output := newLimitedBuffer(maxCommandOutput)
@@ -225,16 +222,6 @@ func Bash(ctx context.Context, input json.RawMessage) (string, error) {
 		return fmt.Sprintf("%s\nerror: %s", result, err), nil
 	}
 	return result, nil
-}
-
-func shellCommand(ctx context.Context, command string) *exec.Cmd {
-	if bashPath, err := exec.LookPath("bash"); err == nil {
-		return exec.CommandContext(ctx, bashPath, "-c", command)
-	}
-	if runtime.GOOS == "windows" {
-		return exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
-	}
-	return exec.CommandContext(ctx, "sh", "-c", command)
 }
 
 type limitedBuffer struct {
@@ -278,8 +265,8 @@ func (buffer *limitedBuffer) Truncated() bool {
 	return buffer.truncated
 }
 
-func workspacePath(ctx context.Context, relativePath string) (string, error) {
-	root, err := workspaceRoot(ctx)
+func workspacePath(relativePath string) (string, error) {
+	root, err := filepath.Abs(".")
 	if err != nil {
 		return "", err
 	}
@@ -293,15 +280,4 @@ func workspacePath(ctx context.Context, relativePath string) (string, error) {
 		return "", fmt.Errorf("path must stay within the working directory")
 	}
 	return target, nil
-}
-
-func workspaceRoot(ctx context.Context) (string, error) {
-	if root, ok := ctx.Value(workspaceRootContextKey{}).(string); ok && root != "" {
-		return root, nil
-	}
-	root, err := filepath.Abs(".")
-	if err != nil {
-		return "", fmt.Errorf("failed to get working directory: %w", err)
-	}
-	return root, nil
 }
