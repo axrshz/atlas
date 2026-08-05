@@ -6,6 +6,7 @@ a minimal coding agent harness built in golang. wip.
 
 - 100% written in go
 - bubble tea minimal tui
+- streaming reasoning and response output
 - supports openrouter
 - read, edit, delete, and list file tools
 - bash execution tool
@@ -24,19 +25,36 @@ internal/tui/           bubble tea terminal interface
 
 `internal` packages keep implementation details private to this application. `main.go` stays at the root, so you can still run the project with `go run .`.
 
-## run it
+## install
 
-create `.env` from `.env.example`, then set `OPENROUTER_API_KEY` and `TAVILY_API_KEY`.
+create the shared configuration file at `%userprofile%\.atlas\.env`:
 
 ```powershell
-go run .
+New-Item -ItemType Directory -Force "$HOME\.atlas"
+Copy-Item .env.example "$HOME\.atlas\.env"
+notepad "$HOME\.atlas\.env"
 ```
 
-or build a windows executable:
+set `OPENROUTER_API_KEY` and `TAVILY_API_KEY` in that file, then install atlas:
 
-```powershell
-go build -o agent.exe .
-.\agent.exe
+```bash
+go install .
+```
+
+make sure `$(go env GOPATH)/bin` is on your `PATH`. atlas can then be started from
+any project directory:
+
+```bash
+cd ../other-project
+atlas
+```
+
+the directory where `atlas` is launched is its workspace. atlas loads configuration
+from the process environment, the workspace `.env`, then `$HOME/.atlas/.env`. for
+local development, run:
+
+```bash
+go run .
 ```
 
 ## configuration
@@ -61,7 +79,6 @@ the agent resumes the most recently updated session at startup and saves after e
 - `/new` — start a new session
 - `/sessions` — list saved sessions
 - `/delete-session <id>` — delete an inactive session
-- `/reload` — rebuild and restart the agent after changing the harness
 - `/help` — show the available commands
 
 ## tools

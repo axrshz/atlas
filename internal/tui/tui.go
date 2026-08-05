@@ -14,6 +14,7 @@ import (
 type EventMsg struct {
 	Kind    string
 	Content string
+	Append  bool
 }
 
 // AgentDoneMsg reports an unexpected stop from the background agent loop.
@@ -21,27 +22,17 @@ type AgentDoneMsg struct {
 	Err error
 }
 
-// ReloadFunc rebuilds the application and returns the path of the new executable.
-type ReloadFunc func() (string, error)
-
-type reloadResultMsg struct {
-	executable string
-	err        error
-}
-
 // Model is the minimal terminal interface around the agent.
 type Model struct {
-	input             textinput.Model
-	conversation      viewport.Model
-	events            []EventMsg
-	inputCh           chan<- string
-	reload            ReloadFunc
-	restartExecutable string
-	width             int
-	height            int
+	input        textinput.Model
+	conversation viewport.Model
+	events       []EventMsg
+	inputCh      chan<- string
+	width        int
+	height       int
 }
 
-func New(inputCh chan<- string, reload ReloadFunc) Model {
+func New(inputCh chan<- string) Model {
 	input := textinput.New()
 	input.Prompt = "you: "
 	input.Placeholder = "write a message"
@@ -51,7 +42,6 @@ func New(inputCh chan<- string, reload ReloadFunc) Model {
 		input:        input,
 		conversation: viewport.New(80, 20),
 		inputCh:      inputCh,
-		reload:       reload,
 	}
 }
 
@@ -81,14 +71,6 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case reloadResultMsg:
-		if message.err != nil {
-			m.addEvent(EventMsg{Kind: "error", Content: message.err.Error()})
-			return m, nil
-		}
-		m.restartExecutable = message.executable
-		return m, tea.Quit
-
 	case tea.MouseMsg:
 		var command tea.Cmd
 		m.conversation, command = m.conversation.Update(message)
@@ -109,11 +91,6 @@ func (m Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.input.Reset()
 
-			if input == "/reload" {
-				m.addEvent(EventMsg{Kind: "system", Content: "rebuilding agent..."})
-				return m, m.reloadCommand()
-			}
-
 			m.addEvent(EventMsg{Kind: "you", Content: input})
 			return m, sendInput(m.inputCh, input)
 		}
@@ -130,20 +107,20 @@ func (m Model) View() string {
 	}
 
 	return fmt.Sprintf(
-		"atlas\n\n%s\n\n%s\npgup/pgdown or mouse wheel scroll | ctrl+c quit | /reload rebuild and restart",
+		"atlas\n\n%s\n\n%s\npgup/pgdown or mouse wheel scroll | ctrl+c quit",
 		m.conversation.View(),
 		m.input.View(),
 	)
 }
 
-// RestartExecutable is non-empty after a successful /reload command.
-func (m Model) RestartExecutable() string {
-	return m.restartExecutable
-}
-
 func (m *Model) addEvent(event EventMsg) {
 	wasAtBottom := m.conversation.AtBottom()
-	m.events = append(m.events, event)
+	lastIndex := len(m.events) - 1
+	if event.Append && lastIndex >= 0 && m.events[lastIndex].Append && m.events[lastIndex].Kind == event.Kind {
+		m.events[lastIndex].Content += event.Content
+	} else {
+		m.events = append(m.events, event)
+	}
 	m.refreshConversation(wasAtBottom)
 }
 
@@ -158,16 +135,6 @@ func (m *Model) refreshConversation(followBottom bool) {
 		m.conversation.GotoBottom()
 	} else {
 		m.conversation.SetYOffset(m.conversation.YOffset)
-	}
-}
-
-func (m Model) reloadCommand() tea.Cmd {
-	return func() tea.Msg {
-		if m.reload == nil {
-			return reloadResultMsg{err: fmt.Errorf("reload is not configured")}
-		}
-		executable, err := m.reload()
-		return reloadResultMsg{executable: executable, err: err}
 	}
 }
 

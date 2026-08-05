@@ -1,4 +1,4 @@
-module agent
+module atlas
 
 go 1.26.3
 

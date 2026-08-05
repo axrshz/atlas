@@ -9,21 +9,26 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"agent/internal/config"
-	"agent/internal/session"
-	"agent/internal/tools"
+	"atlas/internal/config"
+	"atlas/internal/session"
+	"atlas/internal/tools"
 
 	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
 )
 
-const commandsMessage = "commands: /new, /sessions, /delete-session <id>, /reload, /help"
+const commandsMessage = "commands: /new, /sessions, /delete-session <id>, /help"
 
 // Event is a message for the user interface to display.
 type Event struct {
 	Kind    string
 	Content string
+	Append  bool
+}
+
+type inferenceResult struct {
+	message      openai.ChatCompletionMessage
+	messageParam openai.ChatCompletionMessageParamUnion
 }
 
 type Agent struct {
@@ -81,18 +86,11 @@ func (a *Agent) Run(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if len(response.Choices) == 0 {
-				return fmt.Errorf("openrouter returned no completion choices")
-			}
 
-			message := response.Choices[0].Message
-			a.session.Messages = append(a.session.Messages, message.ToParam())
+			message := response.message
+			a.session.Messages = append(a.session.Messages, response.messageParam)
 			if err := a.saveSession(); err != nil {
 				return err
-			}
-
-			if message.Content != "" {
-				a.emit("assistant", "%s", message.Content)
 			}
 			if len(message.ToolCalls) == 0 {
 				break
@@ -225,7 +223,42 @@ func (a *Agent) saveSession() error {
 	return nil
 }
 
-func (a *Agent) runInference(ctx context.Context, conversation []openai.ChatCompletionMessageParamUnion) (*openai.ChatCompletion, error) {
+func (a *Agent) runInference(ctx context.Context, conversation []openai.ChatCompletionMessageParamUnion) (inferenceResult, error) {
+	params := a.chatCompletionParams(conversation)
+	stream := a.client.Chat.Completions.NewStreaming(ctx, params)
+	defer stream.Close()
+
+	accumulator := openRouterStreamAccumulator{}
+	for stream.Next() {
+		contentDelta, reasoningDelta, err := accumulator.addChunk(stream.Current())
+		if err != nil {
+			return inferenceResult{}, err
+		}
+		if reasoningDelta != "" {
+			a.emitDelta("reasoning", reasoningDelta)
+		}
+		if contentDelta != "" {
+			a.emitDelta("assistant", contentDelta)
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return inferenceResult{}, fmt.Errorf("stream openrouter response: %w", err)
+	}
+	if len(accumulator.Choices) == 0 {
+		return inferenceResult{}, fmt.Errorf("openrouter returned no completion choices")
+	}
+
+	messageParam, err := accumulator.messageParam()
+	if err != nil {
+		return inferenceResult{}, err
+	}
+	return inferenceResult{
+		message:      accumulator.Choices[0].Message,
+		messageParam: messageParam,
+	}, nil
+}
+
+func (a *Agent) chatCompletionParams(conversation []openai.ChatCompletionMessageParamUnion) openai.ChatCompletionNewParams {
 	tools := make([]openai.ChatCompletionToolUnionParam, 0, len(a.tools))
 	for _, tool := range a.tools {
 		tools = append(tools, openai.ChatCompletionFunctionTool(shared.FunctionDefinitionParam{
@@ -242,11 +275,164 @@ func (a *Agent) runInference(ctx context.Context, conversation []openai.ChatComp
 		MaxCompletionTokens: openai.Int(int64(a.config.MaxTokens)),
 		Temperature:         openai.Float(a.config.Temperature),
 	}
-	return a.client.Chat.Completions.New(
-		ctx,
-		params,
-		option.WithJSONSet("reasoning.effort", a.config.ReasoningEffort),
-	)
+	if a.config.ReasoningEffort != "" {
+		params.SetExtraFields(map[string]any{
+			"reasoning": map[string]any{
+				"effort":  a.config.ReasoningEffort,
+				"exclude": false,
+			},
+		})
+	}
+	return params
+}
+
+type openRouterStreamAccumulator struct {
+	openai.ChatCompletionAccumulator
+	reasoning               string
+	reasoningDetails        []map[string]json.RawMessage
+	reasoningDetailsPresent bool
+	textStarted             bool
+}
+
+func (accumulator *openRouterStreamAccumulator) addChunk(chunk openai.ChatCompletionChunk) (string, string, error) {
+	if !accumulator.AddChunk(chunk) {
+		return "", "", fmt.Errorf("could not accumulate openrouter stream chunk")
+	}
+	if len(chunk.Choices) == 0 {
+		return "", "", nil
+	}
+
+	delta := chunk.Choices[0].Delta
+	var fields struct {
+		Reasoning        string          `json:"reasoning"`
+		ReasoningDetails json.RawMessage `json:"reasoning_details"`
+	}
+	if raw := delta.RawJSON(); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+			return "", "", fmt.Errorf("decode openrouter stream reasoning: %w", err)
+		}
+	}
+
+	reasoningDelta := ""
+	if hasJSONValue(fields.ReasoningDetails) {
+		accumulator.reasoningDetailsPresent = true
+		var details []map[string]json.RawMessage
+		if err := json.Unmarshal(fields.ReasoningDetails, &details); err != nil {
+			return "", "", fmt.Errorf("decode openrouter reasoning details: %w", err)
+		}
+		for _, detail := range details {
+			visibleText, err := accumulator.addReasoningDetail(detail)
+			if err != nil {
+				return "", "", err
+			}
+			if !accumulator.textStarted {
+				reasoningDelta += visibleText
+			}
+		}
+		if len(details) == 0 && fields.Reasoning != "" {
+			accumulator.reasoning += fields.Reasoning
+			if !accumulator.textStarted {
+				reasoningDelta = fields.Reasoning
+			}
+		}
+	} else if fields.Reasoning != "" {
+		accumulator.reasoning += fields.Reasoning
+		if !accumulator.textStarted {
+			reasoningDelta = fields.Reasoning
+		}
+	}
+
+	if delta.Content != "" {
+		accumulator.textStarted = true
+	}
+	return delta.Content, reasoningDelta, nil
+}
+
+func (accumulator *openRouterStreamAccumulator) addReasoningDetail(detail map[string]json.RawMessage) (string, error) {
+	detailType, err := rawJSONString(detail["type"])
+	if err != nil {
+		return "", fmt.Errorf("decode openrouter reasoning detail type: %w", err)
+	}
+
+	visibleText := ""
+	textField := ""
+	switch detailType {
+	case "reasoning.text":
+		textField = "text"
+	case "reasoning.summary":
+		textField = "summary"
+	}
+	if textField != "" {
+		visibleText, err = rawJSONString(detail[textField])
+		if err != nil {
+			return "", fmt.Errorf("decode openrouter %s: %w", textField, err)
+		}
+	}
+
+	lastIndex := len(accumulator.reasoningDetails) - 1
+	if textField == "" || lastIndex < 0 {
+		accumulator.reasoningDetails = append(accumulator.reasoningDetails, detail)
+		return visibleText, nil
+	}
+	lastType, err := rawJSONString(accumulator.reasoningDetails[lastIndex]["type"])
+	if err != nil {
+		return "", fmt.Errorf("decode accumulated openrouter reasoning detail type: %w", err)
+	}
+	if lastType != detailType {
+		accumulator.reasoningDetails = append(accumulator.reasoningDetails, detail)
+		return visibleText, nil
+	}
+
+	lastDetail := accumulator.reasoningDetails[lastIndex]
+	previousText, err := rawJSONString(lastDetail[textField])
+	if err != nil {
+		return "", fmt.Errorf("decode accumulated openrouter %s: %w", textField, err)
+	}
+	combinedText, err := json.Marshal(previousText + visibleText)
+	if err != nil {
+		return "", err
+	}
+	lastDetail[textField] = combinedText
+	for key, value := range detail {
+		if key == textField {
+			continue
+		}
+		if !hasJSONValue(lastDetail[key]) && hasJSONValue(value) {
+			lastDetail[key] = value
+		}
+	}
+	return visibleText, nil
+}
+
+func (accumulator *openRouterStreamAccumulator) messageParam() (openai.ChatCompletionMessageParamUnion, error) {
+	message := accumulator.Choices[0].Message
+	assistant := message.ToAssistantMessageParam()
+	if accumulator.reasoningDetailsPresent {
+		reasoningDetails, err := json.Marshal(accumulator.reasoningDetails)
+		if err != nil {
+			return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("encode openrouter reasoning details: %w", err)
+		}
+		assistant.SetExtraFields(map[string]any{"reasoning_details": json.RawMessage(reasoningDetails)})
+	} else if accumulator.reasoning != "" {
+		assistant.SetExtraFields(map[string]any{"reasoning": accumulator.reasoning})
+	}
+	return openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant}, nil
+}
+
+func rawJSONString(value json.RawMessage) (string, error) {
+	if !hasJSONValue(value) {
+		return "", nil
+	}
+	var decoded string
+	if err := json.Unmarshal(value, &decoded); err != nil {
+		return "", err
+	}
+	return decoded, nil
+}
+
+func hasJSONValue(value json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(value))
+	return trimmed != "" && trimmed != "null"
 }
 
 func (a *Agent) executeTool(ctx context.Context, name string, input json.RawMessage) string {
@@ -291,4 +477,8 @@ func truncateToolOutput(output string, maxBytes int) string {
 
 func (a *Agent) emit(kind string, format string, args ...any) {
 	a.onEvent(Event{Kind: kind, Content: fmt.Sprintf(format, args...)})
+}
+
+func (a *Agent) emitDelta(kind, content string) {
+	a.onEvent(Event{Kind: kind, Content: content, Append: true})
 }

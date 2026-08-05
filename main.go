@@ -4,17 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
-	"strings"
-	"time"
 
-	"agent/internal/agent"
-	"agent/internal/config"
-	"agent/internal/session"
-	"agent/internal/tools"
-	"agent/internal/tui"
+	"atlas/internal/agent"
+	"atlas/internal/config"
+	"atlas/internal/session"
+	"atlas/internal/tools"
+	"atlas/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/joho/godotenv"
@@ -26,7 +22,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+	if err := loadEnvironment(); err != nil {
 		fmt.Fprintf(os.Stderr, "could not load .env: %s\n", err)
 		os.Exit(1)
 	}
@@ -57,72 +53,36 @@ func main() {
 		appConfig,
 		sessionManager,
 		func(event agent.Event) {
-			program.Send(tui.EventMsg{Kind: event.Kind, Content: event.Content})
+			program.Send(tui.EventMsg{Kind: event.Kind, Content: event.Content, Append: event.Append})
 		},
 	)
 
-	model := tui.New(inputCh, buildReloadedAgent)
+	model := tui.New(inputCh)
 	program = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	go func() {
 		program.Send(tui.AgentDoneMsg{Err: chatAgent.Run(ctx)})
 	}()
 
-	finalModel, err := program.Run()
+	_, err := program.Run()
 	cancel()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "could not run terminal interface: %s\n", err)
-		return
-	}
-
-	if model, ok := finalModel.(tui.Model); ok && model.RestartExecutable() != "" {
-		if err := startReloadedAgent(model.RestartExecutable()); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to start updated agent: %s\n", err)
-		}
 	}
 }
 
-func buildReloadedAgent() (string, error) {
-	workingDir, err := os.Getwd()
+func loadEnvironment() error {
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to find the working directory: %w", err)
+		return fmt.Errorf("find user home directory: %w", err)
 	}
 
-	reloadDir := filepath.Join(os.TempDir(), "atlas-reload")
-	if err := os.MkdirAll(reloadDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create reload directory: %w", err)
-	}
-
-	extension := ""
-	if runtime.GOOS == "windows" {
-		extension = ".exe"
-	}
-	reloadedExecutable := filepath.Join(reloadDir, fmt.Sprintf("atlas-%d%s", time.Now().UnixNano(), extension))
-
-	build := exec.Command("go", "build", "-o", reloadedExecutable, ".")
-	build.Dir = workingDir
-	buildOutput, err := build.CombinedOutput()
-	if err != nil {
-		details := strings.TrimSpace(string(buildOutput))
-		if details == "" {
-			return "", fmt.Errorf("failed to rebuild agent: %w", err)
+	// Load preserves variables already present in the process environment. Loading
+	// the project file first gives it precedence over the shared fallback file.
+	for _, envFile := range []string{".env", filepath.Join(homeDir, ".atlas", ".env")} {
+		if err := godotenv.Load(envFile); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("load %s: %w", envFile, err)
 		}
-		return "", fmt.Errorf("failed to rebuild agent: %w\n%s", err, details)
 	}
-	return reloadedExecutable, nil
-}
-
-func startReloadedAgent(executable string) error {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to find the working directory: %w", err)
-	}
-
-	restarted := exec.Command(executable, os.Args[1:]...)
-	restarted.Dir = workingDir
-	restarted.Env = os.Environ()
-	restarted.Stdin = os.Stdin
-	restarted.Stdout = os.Stdout
-	restarted.Stderr = os.Stderr
-	return restarted.Start()
+	return nil
 }

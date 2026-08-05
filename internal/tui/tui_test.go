@@ -10,7 +10,7 @@ import (
 
 func TestEnterAddsMessageAndSendsInputToAgent(t *testing.T) {
 	inputCh := make(chan string, 1)
-	model := New(inputCh, nil)
+	model := New(inputCh)
 
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updated.(Model)
@@ -37,7 +37,7 @@ func TestEnterAddsMessageAndSendsInputToAgent(t *testing.T) {
 }
 
 func TestAgentOutputWrapsToViewportWidth(t *testing.T) {
-	model := New(make(chan string, 1), nil)
+	model := New(make(chan string, 1))
 
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 20, Height: 12})
 	model = updated.(Model)
@@ -54,6 +54,21 @@ func TestAgentOutputWrapsToViewportWidth(t *testing.T) {
 	}
 	if !strings.Contains(model.conversation.View(), "456789") {
 		t.Fatal("the end of the wrapped agent output is not visible")
+	}
+}
+
+func TestStreamingEventsAppendToOneEntry(t *testing.T) {
+	model := New(make(chan string, 1))
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updated.(Model)
+
+	for _, content := range []string{"hello", " ", "world"} {
+		updated, _ = model.Update(EventMsg{Kind: "assistant", Content: content, Append: true})
+		model = updated.(Model)
+	}
+
+	if len(model.events) != 1 || model.events[0].Content != "hello world" {
+		t.Fatalf("streaming events were not combined: %#v", model.events)
 	}
 }
 
@@ -100,7 +115,7 @@ func TestNewOutputPreservesManualScrollPosition(t *testing.T) {
 
 func populatedScrollableModel(t *testing.T) Model {
 	t.Helper()
-	model := New(make(chan string, 1), nil)
+	model := New(make(chan string, 1))
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 40, Height: 10})
 	model = updated.(Model)
 

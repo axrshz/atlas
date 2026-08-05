@@ -236,5 +236,26 @@ func rawToMessage(raw json.RawMessage) (openai.ChatCompletionMessageParamUnion, 
 	if err := json.Unmarshal(raw, &message); err != nil {
 		return openai.ChatCompletionMessageParamUnion{}, err
 	}
+
+	// reasoning and reasoning_details are OpenRouter extensions, so the OpenAI SDK
+	// does not restore them automatically when unmarshalling a saved message.
+	if message.OfAssistant != nil {
+		var fields struct {
+			Reasoning        json.RawMessage `json:"reasoning"`
+			ReasoningDetails json.RawMessage `json:"reasoning_details"`
+		}
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return openai.ChatCompletionMessageParamUnion{}, err
+		}
+		extraFields := make(map[string]any, 2)
+		if len(fields.ReasoningDetails) > 0 && string(fields.ReasoningDetails) != "null" {
+			extraFields["reasoning_details"] = fields.ReasoningDetails
+		} else if len(fields.Reasoning) > 0 && string(fields.Reasoning) != "null" {
+			extraFields["reasoning"] = fields.Reasoning
+		}
+		if len(extraFields) > 0 {
+			message.OfAssistant.SetExtraFields(extraFields)
+		}
+	}
 	return message, nil
 }

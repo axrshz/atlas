@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
@@ -15,6 +16,9 @@ func TestSessionRoundTripPreservesMessagesAndToolCalls(t *testing.T) {
 
 	assistant := openai.ChatCompletionAssistantMessageParam{}
 	assistant.Content.OfString = openai.String("i will read the file")
+	assistant.SetExtraFields(map[string]any{
+		"reasoning_details": json.RawMessage(`[{"type":"reasoning.text","text":"inspect first"}]`),
+	})
 	assistant.ToolCalls = []openai.ChatCompletionMessageToolCallUnionParam{
 		{
 			OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
@@ -58,6 +62,17 @@ func TestSessionRoundTripPreservesMessagesAndToolCalls(t *testing.T) {
 	restoredCall := restoredAssistant.ToolCalls[0].OfFunction
 	if restoredCall == nil || restoredCall.ID != "call_1" || restoredCall.Function.Name != "read_file" {
 		t.Fatal("assistant function tool call changed during restore")
+	}
+	restoredJSON, err := json.Marshal(restoredAssistant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restoredFields map[string]json.RawMessage
+	if err := json.Unmarshal(restoredJSON, &restoredFields); err != nil {
+		t.Fatal(err)
+	}
+	if len(restoredFields["reasoning_details"]) == 0 {
+		t.Fatalf("assistant reasoning details were not restored: %s", restoredJSON)
 	}
 	if loaded.Messages[3].OfTool == nil || loaded.Messages[3].OfTool.ToolCallID != "call_1" {
 		t.Fatal("tool result was not restored")
