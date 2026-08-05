@@ -35,7 +35,7 @@ internal/tui/           bubble tea terminal interface
 
 ## run it
 
-create `.env` from `.env.example`, then set `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, and `TAVILY_API_KEY`.
+create `.env` from `.env.example`, then set `OPENROUTER_API_KEY` and `TAVILY_API_KEY`.
 
 ```powershell
 go run .
@@ -52,7 +52,7 @@ go build -o agent.exe .
 
 all application settings are defined in `internal/config/config.go`:
 
-- model: `openrouter/auto`, overridden by `OPENROUTER_MODEL`
+- model: `poolside/laguna-s-2.1:free`
 - base url: `https://openrouter.ai/api/v1`
 - reasoning effort: `high`
 - maximum completion tokens: `4096`

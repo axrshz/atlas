@@ -15,7 +15,7 @@ type Config struct {
 }
 
 var DefaultConfig = Config{
-	Model:           "openrouter/auto",
+	Model:           "poolside/laguna-s-2.1:free",
 	BaseURL:         "https://openrouter.ai/api/v1",
 	ReasoningEffort: "high",
 	MaxTokens:       4096,

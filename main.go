@@ -38,9 +38,6 @@ func main() {
 	}
 
 	appConfig := config.DefaultConfig
-	if model := strings.TrimSpace(os.Getenv("OPENROUTER_MODEL")); model != "" {
-		appConfig.Model = model
-	}
 	sessionManager := session.NewSessionManager(appConfig.SessionsDir)
 
 	client := openai.NewClient(
