@@ -6,7 +6,7 @@ a minimal coding agent harness built in golang. wip.
 
 - 100% written in go
 - bubble tea minimal tui
-- supports openrouter models
+- supports openrouter
 - read, edit, delete, and list file tools
 - bash execution tool
 - web search and web fetch tools using the tavily api
