@@ -1,0 +1,35 @@
+{
+  "name": "atlas-smoke",
+  "kind": "capability",
+  "trials": 2,
+  "tasks": [
+    {
+      "name": "identity",
+      "input": "reply with exactly: atlas",
+      "graders": [
+        {
+          "type": "equals",
+          "value": "atlas"
+        }
+      ]
+    },
+    {
+      "name": "workspace-inspection",
+      "input": "use the list_files tool to inspect the current workspace, then state whether README.md exists",
+      "graders": [
+        {
+          "type": "tool_called",
+          "value": "list_files"
+        },
+        {
+          "type": "contains",
+          "value": "README.md"
+        },
+        {
+          "type": "llm_judge",
+          "rubric": "the answer must clearly and correctly state whether README.md exists, using the tool result as evidence and without inventing unrelated details"
+        }
+      ]
+    }
+  ]
+}
