@@ -1,3 +1,4 @@
 .env
 sessions/
+eval-reports/
 *.exe

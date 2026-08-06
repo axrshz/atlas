@@ -18,9 +18,11 @@ a minimal coding agent harness built in golang. wip.
 main.go                 starts the application
 internal/agent/         chat loop, openrouter requests, and tool-call handling
 internal/config/        default application settings
+internal/evals/         eval suites, deterministic graders, and reports
 internal/session/       saved conversation storage and restoration
 internal/tools/         tool descriptions and filesystem/bash implementations
 internal/tui/           bubble tea terminal interface
+cmd/eval/               headless eval command
 ```
 
 `internal` packages keep implementation details private to this application. `main.go` stays at the root, so you can still run the project with `go run .`.
@@ -80,6 +82,61 @@ the agent resumes the most recently updated session at startup and saves after e
 - `/sessions` — list saved sessions
 - `/delete-session <id>` — delete an inactive session
 - `/help` — show the available commands
+
+## evals
+
+atlas includes a small headless eval harness. each trial starts with a fresh chat
+conversation and uses the same model, system prompt, and tools as the interactive
+agent. it also receives a fresh temporary copy of the current workspace. `.git`,
+`.env`, `.gocache`, `sessions`, `eval-reports`, symbolic links, and executable
+files are excluded. the copy is removed after the trial, leaving the source
+workspace unchanged.
+
+run the included smoke suite:
+
+```bash
+go run ./cmd/eval -suite evals/smoke.json -report eval-reports/smoke.json
+```
+
+override the number of repeated trials or the per-trial timeout:
+
+```bash
+go run ./cmd/eval -suite evals/smoke.json -trials 3 -timeout 2m
+```
+
+a suite is a json file containing tasks and graders:
+
+```json
+{
+  "name": "atlas-smoke",
+  "kind": "capability",
+  "trials": 2,
+  "tasks": [
+    {
+      "name": "identity",
+      "input": "reply with exactly: atlas",
+      "graders": [
+        { "type": "equals", "value": "atlas" }
+      ]
+    }
+  ]
+}
+```
+
+the built-in grader types are `contains`, `not_contains`, `equals`, `regex`,
+`tool_called`, and `llm_judge`. every grader on a task must pass. reports include
+each output, tool trajectory, grader decision, latency, overall pass rate, pass@k,
+and pass^k.
+
+`llm_judge` uses the same model configured for atlas through the same openrouter
+client. give it one focused rubric:
+
+```json
+{
+  "type": "llm_judge",
+  "rubric": "the answer must be correct, concise, and grounded in the tool result"
+}
+```
 
 ## tools
 

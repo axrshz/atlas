@@ -3,6 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/openai/openai-go/v3/shared"
 )
@@ -136,6 +139,53 @@ func DefaultTools() []ToolDefinition {
 		WebSearchDefinition,
 		WebFetchDefinition,
 	}
+}
+
+// DefaultToolsForWorkspace returns the normal tool set with filesystem and
+// shell operations rooted at one explicit directory.
+func DefaultToolsForWorkspace(root string) ([]ToolDefinition, error) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve workspace: %w", err)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, fmt.Errorf("inspect workspace: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("workspace must be a directory")
+	}
+
+	readFile := ReadFileDefinition
+	readFile.Function = func(ctx context.Context, input json.RawMessage) (string, error) {
+		return readFileAt(root, ctx, input)
+	}
+	listFiles := ListFilesDefinition
+	listFiles.Function = func(ctx context.Context, input json.RawMessage) (string, error) {
+		return listFilesAt(root, ctx, input)
+	}
+	editFile := EditFileDefinition
+	editFile.Function = func(ctx context.Context, input json.RawMessage) (string, error) {
+		return editFileAt(root, ctx, input)
+	}
+	deleteFile := DeleteFileDefinition
+	deleteFile.Function = func(ctx context.Context, input json.RawMessage) (string, error) {
+		return deleteFileAt(root, ctx, input)
+	}
+	bash := BashDefinition
+	bash.Function = func(ctx context.Context, input json.RawMessage) (string, error) {
+		return bashAt(root, ctx, input)
+	}
+
+	return []ToolDefinition{
+		readFile,
+		listFiles,
+		editFile,
+		deleteFile,
+		bash,
+		WebSearchDefinition,
+		WebFetchDefinition,
+	}, nil
 }
 
 func objectSchema(properties map[string]any, required []string) shared.FunctionParameters {

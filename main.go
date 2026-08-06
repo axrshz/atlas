@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"atlas/internal/agent"
 	"atlas/internal/config"
@@ -13,7 +12,6 @@ import (
 	"atlas/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/joho/godotenv"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
@@ -72,17 +70,5 @@ func main() {
 }
 
 func loadEnvironment() error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("find user home directory: %w", err)
-	}
-
-	// Load preserves variables already present in the process environment. Loading
-	// the project file first gives it precedence over the shared fallback file.
-	for _, envFile := range []string{".env", filepath.Join(homeDir, ".atlas", ".env")} {
-		if err := godotenv.Load(envFile); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("load %s: %w", envFile, err)
-		}
-	}
-	return nil
+	return config.LoadEnvironment()
 }

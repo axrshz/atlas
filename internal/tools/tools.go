@@ -18,6 +18,10 @@ type ReadFileInput struct {
 }
 
 func ReadFile(ctx context.Context, input json.RawMessage) (string, error) {
+	return readFileAt(".", ctx, input)
+}
+
+func readFileAt(root string, ctx context.Context, input json.RawMessage) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -29,7 +33,7 @@ func ReadFile(ctx context.Context, input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("path is required")
 	}
 
-	filePath, err := workspacePath(args.Path)
+	filePath, err := workspacePath(root, args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -49,6 +53,10 @@ type ListFilesInput struct {
 }
 
 func ListFiles(ctx context.Context, input json.RawMessage) (string, error) {
+	return listFilesAt(".", ctx, input)
+}
+
+func listFilesAt(root string, ctx context.Context, input json.RawMessage) (string, error) {
 	var args ListFilesInput
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid list_files input: %w", err)
@@ -58,7 +66,7 @@ func ListFiles(ctx context.Context, input json.RawMessage) (string, error) {
 	if args.Path != "" {
 		dir = args.Path
 	}
-	dirPath, err := workspacePath(dir)
+	dirPath, err := workspacePath(root, dir)
 	if err != nil {
 		return "", err
 	}
@@ -104,6 +112,10 @@ type EditFileInput struct {
 }
 
 func EditFile(ctx context.Context, input json.RawMessage) (string, error) {
+	return editFileAt(".", ctx, input)
+}
+
+func editFileAt(root string, ctx context.Context, input json.RawMessage) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -115,7 +127,7 @@ func EditFile(ctx context.Context, input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("invalid input parameters")
 	}
 
-	filePath, err := workspacePath(args.Path)
+	filePath, err := workspacePath(root, args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -159,6 +171,10 @@ type DeleteFileInput struct {
 }
 
 func DeleteFile(ctx context.Context, input json.RawMessage) (string, error) {
+	return deleteFileAt(".", ctx, input)
+}
+
+func deleteFileAt(root string, ctx context.Context, input json.RawMessage) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -170,7 +186,7 @@ func DeleteFile(ctx context.Context, input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("path is required")
 	}
 
-	filePath, err := workspacePath(args.Path)
+	filePath, err := workspacePath(root, args.Path)
 	if err != nil {
 		return "", err
 	}
@@ -189,6 +205,10 @@ type BashInput struct {
 }
 
 func Bash(ctx context.Context, input json.RawMessage) (string, error) {
+	return bashAt(".", ctx, input)
+}
+
+func bashAt(root string, ctx context.Context, input json.RawMessage) (string, error) {
 	var args BashInput
 	if err := json.Unmarshal(input, &args); err != nil {
 		return "", fmt.Errorf("invalid bash input: %w", err)
@@ -198,7 +218,7 @@ func Bash(ctx context.Context, input json.RawMessage) (string, error) {
 		return "", fmt.Errorf("command is required")
 	}
 
-	root, err := filepath.Abs(".")
+	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", fmt.Errorf("failed to get working directory: %w", err)
 	}
@@ -265,8 +285,8 @@ func (buffer *limitedBuffer) Truncated() bool {
 	return buffer.truncated
 }
 
-func workspacePath(relativePath string) (string, error) {
-	root, err := filepath.Abs(".")
+func workspacePath(root, relativePath string) (string, error) {
+	root, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
 	}

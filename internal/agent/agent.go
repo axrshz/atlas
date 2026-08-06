@@ -31,6 +31,19 @@ type inferenceResult struct {
 	messageParam openai.ChatCompletionMessageParamUnion
 }
 
+// ToolCall records one tool interaction from a single agent task.
+type ToolCall struct {
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+	Result    string          `json:"result"`
+}
+
+// TaskResult is the observable result of one isolated agent conversation.
+type TaskResult struct {
+	Output    string     `json:"output"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+}
+
 type Agent struct {
 	client         *openai.Client
 	getUserMessage func() (string, bool)
@@ -97,21 +110,61 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 
 			for _, toolCall := range message.ToolCalls {
-				functionCall, ok := toolCall.AsAny().(openai.ChatCompletionMessageFunctionToolCall)
-				if !ok {
+				if toolCall.Type != "function" {
 					return fmt.Errorf("unsupported tool call type %q", toolCall.Type)
 				}
 
 				result := a.executeTool(
 					ctx,
-					functionCall.Function.Name,
-					json.RawMessage(functionCall.Function.Arguments),
+					toolCall.Function.Name,
+					json.RawMessage(toolCall.Function.Arguments),
 				)
-				a.session.Messages = append(a.session.Messages, openai.ToolMessage(result, functionCall.ID))
+				a.session.Messages = append(a.session.Messages, openai.ToolMessage(result, toolCall.ID))
 				if err := a.saveSession(); err != nil {
 					return err
 				}
 			}
+		}
+	}
+}
+
+// RunTask executes one prompt in a fresh in-memory conversation. It uses the
+// same model, system prompt, and tools as the interactive agent without loading
+// or saving a user session.
+func (a *Agent) RunTask(ctx context.Context, input string) (TaskResult, error) {
+	conversation := make([]openai.ChatCompletionMessageParamUnion, 0, 4)
+	if a.config.SystemPrompt != "" {
+		conversation = append(conversation, openai.SystemMessage(a.config.SystemPrompt))
+	}
+	conversation = append(conversation, openai.UserMessage(input))
+
+	result := TaskResult{}
+	for {
+		response, err := a.runInference(ctx, conversation)
+		if err != nil {
+			return result, err
+		}
+
+		message := response.message
+		conversation = append(conversation, response.messageParam)
+		if len(message.ToolCalls) == 0 {
+			result.Output = message.Content
+			return result, nil
+		}
+
+		for _, toolCall := range message.ToolCalls {
+			if toolCall.Type != "function" {
+				return result, fmt.Errorf("unsupported tool call type %q", toolCall.Type)
+			}
+
+			arguments := json.RawMessage(toolCall.Function.Arguments)
+			toolResult := a.executeTool(ctx, toolCall.Function.Name, arguments)
+			result.ToolCalls = append(result.ToolCalls, ToolCall{
+				Name:      toolCall.Function.Name,
+				Arguments: arguments,
+				Result:    toolResult,
+			})
+			conversation = append(conversation, openai.ToolMessage(toolResult, toolCall.ID))
 		}
 	}
 }

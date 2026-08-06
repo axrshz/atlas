@@ -161,6 +161,57 @@ func TestRunInferenceStreamsDeltas(t *testing.T) {
 	}
 }
 
+func TestRunTaskUsesFreshConversationAndCapturesTools(t *testing.T) {
+	const toolChunkJSON = `{"id":"completion-1","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":-1,"id":"call-1","type":"function","function":{"name":"inspect","arguments":"{}"}}]},"finish_reason":null}]}`
+	var toolChunk openai.ChatCompletionChunk
+	if err := json.Unmarshal([]byte(toolChunkJSON), &toolChunk); err != nil {
+		t.Fatal(err)
+	}
+	if len(toolChunk.Choices[0].Delta.ToolCalls) != 1 || toolChunk.Choices[0].Delta.ToolCalls[0].Function.Name != "inspect" {
+		t.Fatalf("tool chunk did not decode: %#v", toolChunk)
+	}
+	directAccumulator := openRouterStreamAccumulator{}
+	if _, _, err := directAccumulator.addChunk(toolChunk); err != nil {
+		t.Fatal(err)
+	}
+	if directAccumulator.Choices[0].Message.ToolCalls[0].Function.Name != "inspect" {
+		t.Fatalf("tool chunk did not accumulate: %#v", directAccumulator.Choices[0].Message.ToolCalls)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		response.Header().Set("Content-Type", "text/event-stream")
+		if requests == 1 {
+			_, _ = fmt.Fprintf(response, "data: %s\n\n", toolChunkJSON)
+			_, _ = fmt.Fprint(response, "data: {\"id\":\"completion-1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n")
+		} else {
+			_, _ = fmt.Fprint(response, "data: {\"id\":\"completion-2\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n")
+		}
+		_, _ = fmt.Fprint(response, "data: [DONE]\n\n")
+	}))
+	defer server.Close()
+
+	client := openai.NewClient(option.WithAPIKey("test-key"), option.WithBaseURL(server.URL))
+	chatAgent := NewAgent(&client, nil, []tools.ToolDefinition{{
+		Name: "inspect",
+		Function: func(context.Context, json.RawMessage) (string, error) {
+			return "workspace ok", nil
+		},
+	}}, config.DefaultConfig, nil, nil)
+
+	result, err := chatAgent.RunTask(context.Background(), "inspect the workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Output != "done" || len(result.ToolCalls) != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	toolCall := result.ToolCalls[0]
+	if toolCall.Name != "inspect" || string(toolCall.Arguments) != "{}" || toolCall.Result != "workspace ok" {
+		t.Fatalf("unexpected tool trace: %#v", toolCall)
+	}
+}
+
 func TestExecuteToolLimitsOutput(t *testing.T) {
 	appConfig := config.DefaultConfig
 	appConfig.MaxToolOutput = 40
