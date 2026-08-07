@@ -12,6 +12,7 @@ import (
 	"atlas/internal/evals"
 	"atlas/internal/tools"
 
+	modal "github.com/modal-labs/modal-client/go"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
@@ -24,10 +25,12 @@ func main() {
 }
 
 func run() error {
-	suitePath := flag.String("suite", "evals/smoke.json", "path to an eval suite")
+	suitePath := flag.String("suite", "evals/capabilities.json", "path to an eval suite")
 	reportPath := flag.String("report", "", "optional path for the json report")
-	trialTimeout := flag.Duration("timeout", 5*time.Minute, "timeout for each trial")
+	trialTimeout := flag.Duration("timeout", 10*time.Minute, "timeout for each trial")
 	trials := flag.Int("trials", 0, "override the suite trial count")
+	modalAppName := flag.String("modal-app", "atlas-evals", "modal app used for eval sandboxes")
+	modalImage := flag.String("modal-image", "golang:1.26-bookworm", "container image used for eval sandboxes")
 	flag.Parse()
 
 	if err := config.LoadEnvironment(); err != nil {
@@ -36,6 +39,9 @@ func run() error {
 	apiKey := os.Getenv("OPENROUTER_API_KEY")
 	if apiKey == "" {
 		return fmt.Errorf("missing OPENROUTER_API_KEY; add it to .env")
+	}
+	if os.Getenv("TAVILY_API_KEY") == "" {
+		return fmt.Errorf("missing TAVILY_API_KEY; add it to .env")
 	}
 
 	suite, err := evals.LoadSuite(*suitePath)
@@ -47,40 +53,66 @@ func run() error {
 	}
 
 	appConfig := config.DefaultConfig
-	client := openai.NewClient(
+	openAIClient := openai.NewClient(
 		option.WithAPIKey(apiKey),
 		option.WithBaseURL(appConfig.BaseURL),
 	)
+	modalClient, err := modal.NewClient()
+	if err != nil {
+		return fmt.Errorf("create modal client: %w", err)
+	}
+	defer modalClient.Close()
+	modalApp, err := modalClient.Apps.FromName(context.Background(), *modalAppName, &modal.AppFromNameParams{
+		CreateIfMissing: true,
+	})
+	if err != nil {
+		return fmt.Errorf("find modal app: %w", err)
+	}
+	image := modalClient.Images.FromRegistry(*modalImage, nil)
+
 	sourceWorkspace, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("find source workspace: %w", err)
 	}
-	judge := evals.LLMJudge{Client: &client, Model: appConfig.Model}
-	target := evals.IsolatedTarget{
-		Source: sourceWorkspace,
-		NewTarget: func(workspace string) (evals.Target, error) {
-			trialTools, err := tools.DefaultToolsForWorkspace(workspace)
-			if err != nil {
-				return nil, err
+	judge := evals.LLMJudge{Client: &openAIClient, Model: appConfig.Model}
+	target := evals.TargetFunc(func(ctx context.Context, input string) (run evals.Run, runErr error) {
+		stagingWorkspace, err := evals.NewTemporaryWorkspace(sourceWorkspace)
+		if err != nil {
+			return evals.Run{}, err
+		}
+		defer func() {
+			if err := stagingWorkspace.Close(); err != nil && runErr == nil {
+				runErr = err
 			}
-			chatAgent := agent.NewAgent(&client, nil, trialTools, appConfig, nil, nil)
-			return evals.TargetFunc(func(ctx context.Context, input string) (evals.Run, error) {
-				result, err := chatAgent.RunTask(ctx, input)
-				if err != nil {
-					return evals.Run{}, err
-				}
-				run := evals.Run{Output: result.Output, ToolCalls: make([]evals.ToolCall, 0, len(result.ToolCalls))}
-				for _, toolCall := range result.ToolCalls {
-					run.ToolCalls = append(run.ToolCalls, evals.ToolCall{
-						Name:      toolCall.Name,
-						Arguments: string(toolCall.Arguments),
-						Result:    toolCall.Result,
-					})
-				}
-				return run, nil
-			}), nil
-		},
-	}
+		}()
+
+		modalWorkspace, err := tools.NewModalSandbox(ctx, modalClient, modalApp, image, stagingWorkspace.Dir(), *trialTimeout)
+		if err != nil {
+			return evals.Run{}, err
+		}
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := modalWorkspace.Close(cleanupCtx); err != nil && runErr == nil {
+				runErr = err
+			}
+		}()
+
+		chatAgent := agent.NewAgent(&openAIClient, nil, modalWorkspace.Tools(), appConfig, nil, nil)
+		result, err := chatAgent.RunTask(ctx, input)
+		if err != nil {
+			return evals.Run{}, err
+		}
+		run = evals.Run{Output: result.Output, ToolCalls: make([]evals.ToolCall, 0, len(result.ToolCalls))}
+		for _, toolCall := range result.ToolCalls {
+			run.ToolCalls = append(run.ToolCalls, evals.ToolCall{
+				Name:      toolCall.Name,
+				Arguments: string(toolCall.Arguments),
+				Result:    toolCall.Result,
+			})
+		}
+		return run, nil
+	})
 
 	report, err := (evals.Runner{Target: target, Judge: judge, TrialTimeout: *trialTimeout}).Run(context.Background(), suite)
 	if err != nil {

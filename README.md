@@ -86,29 +86,42 @@ the agent resumes the most recently updated session at startup and saves after e
 ## evals
 
 atlas includes a small headless eval harness. each trial starts with a fresh chat
-conversation and uses the same model, system prompt, and tools as the interactive
-agent. it also receives a fresh temporary copy of the current workspace. `.git`,
-`.env`, `.gocache`, `sessions`, `eval-reports`, symbolic links, and executable
-files are excluded. the copy is removed after the trial, leaving the source
-workspace unchanged.
+conversation and uses the same model and system prompt as the interactive agent.
+filesystem and bash tools run in a fresh [modal sandbox](https://modal.com/docs/guide/sandboxes).
+web search and fetch remain explicit tavily-backed tools on the atlas host.
 
-run the included smoke suite:
+the harness first makes a local staging copy of the current workspace, excluding
+`.git`, `.env`, `.gocache`, `sessions`, `eval-reports`, symbolic links, and
+executable files. it uploads that filtered copy to `/workspace` in modal. the
+remote sandbox and local staging copy are discarded after each trial, leaving
+the source workspace unchanged. sandbox commands receive no atlas, openrouter,
+or tavily secrets. sandbox outbound networking stays enabled so repository build
+tools can download dependencies.
+
+configure modal with `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` in `.env` or a
+modal profile, then run the capability suite:
 
 ```bash
-go run ./cmd/eval -suite evals/smoke.json -report eval-reports/smoke.json
+go run ./cmd/eval -suite evals/capabilities.json -report eval-reports/capabilities.json
 ```
 
 override the number of repeated trials or the per-trial timeout:
 
 ```bash
-go run ./cmd/eval -suite evals/smoke.json -trials 3 -timeout 2m
+go run ./cmd/eval -suite evals/capabilities.json -trials 1 -timeout 10m
 ```
+
+the default sandbox image is `golang:1.26-bookworm`. override the modal app or
+image when needed with `-modal-app` and `-modal-image`.
+
+the included suite contains five focused tasks. each task has one clear outcome
+and uses three to five tools; together they cover every atlas tool.
 
 a suite is a json file containing tasks and graders:
 
 ```json
 {
-  "name": "atlas-smoke",
+  "name": "atlas-capabilities",
   "kind": "capability",
   "trials": 2,
   "tasks": [
@@ -148,4 +161,7 @@ client. give it one focused rubric:
 - `web_search` — search the web through the tavily api
 - `web_fetch` — extract a web page as markdown through the tavily api
 
-the filesystem tools reject path traversal and protect `.env` from reads, edits, and deletion. the bash tool has unrestricted shell access and can bypass those protections.
+the filesystem tools reject path traversal and protect `.env` from reads, edits,
+and deletion. during evals, bash runs inside the disposable modal container and
+can alter only that trial's remote workspace and container. interactive atlas
+sessions continue to run bash directly on the host.

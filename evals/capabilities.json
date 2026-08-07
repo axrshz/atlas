@@ -1,0 +1,77 @@
+{
+  "name": "atlas-capabilities",
+  "kind": "capability",
+  "trials": 2,
+  "tasks": [
+    {
+      "name": "repository-orientation",
+      "input": "Learn the basic shape of this repository. Use list_files to inspect the root, read_file to read README.md and go.mod, and bash to run go test ./internal/evals. Create artifacts/repository-summary.md with the project purpose, Go version, three important directories, and the exact test result. In the final answer, give a short summary and state where you saved the file.",
+      "graders": [
+        {"type": "tool_called", "value": "list_files"},
+        {"type": "tool_called", "value": "read_file"},
+        {"type": "tool_called", "value": "bash"},
+        {"type": "tool_called", "value": "edit_file"},
+        {
+          "type": "llm_judge",
+          "rubric": "Pass if the agent inspected the repository, read README.md and go.mod, ran go test ./internal/evals, created artifacts/repository-summary.md with the requested facts, and accurately summarized the result. Fail invented facts or an incorrect test status."
+        }
+      ]
+    },
+    {
+      "name": "modal-documentation-check",
+      "input": "Check whether Atlas's Modal integration follows the basic documented sandbox lifecycle. Read internal/tools/modal.go. Use web_search to find Modal's official Sandboxes guide and web_fetch to read it. Create artifacts/modal-check.md with four short bullets: how Atlas creates a sandbox, where files are uploaded, how commands run, and how the sandbox is cleaned up. Include the official source URL. In the final answer, state whether the basic lifecycle matches the documentation and give the artifact path.",
+      "graders": [
+        {"type": "tool_called", "value": "read_file"},
+        {"type": "tool_called", "value": "web_search"},
+        {"type": "tool_called", "value": "web_fetch"},
+        {"type": "tool_called", "value": "edit_file"},
+        {
+          "type": "llm_judge",
+          "rubric": "Pass if the agent read the Modal implementation and an official Modal Sandboxes page, created artifacts/modal-check.md with the four requested lifecycle facts and source URL, and gave a conclusion supported by both sources."
+        }
+      ]
+    },
+    {
+      "name": "eval-runner-explanation",
+      "input": "Explain the eval runner in simple terms. Read internal/evals/runner.go and internal/evals/types.go. Use bash to count the runner's test functions in internal/evals/runner_test.go. Create artifacts/runner-explanation.md containing a five-step trial flow, the test-function count, and one limitation you can directly support from the code. In the final answer, repeat the five-step flow briefly and provide the artifact path.",
+      "graders": [
+        {"type": "tool_called", "value": "read_file"},
+        {"type": "tool_called", "value": "bash"},
+        {"type": "tool_called", "value": "edit_file"},
+        {
+          "type": "llm_judge",
+          "rubric": "Pass if the explanation accurately describes the implemented runner flow, reports a bash-derived test-function count, gives one code-supported limitation, and creates artifacts/runner-explanation.md. Keep the evaluation focused on correctness rather than writing style."
+        }
+      ]
+    },
+    {
+      "name": "dependency-version-check",
+      "input": "Check one dependency without performing an upgrade. Read go.mod and find the installed version of github.com/modal-labs/modal-client/go. Use web_search to find its official GitHub repository or Go package page, then web_fetch one primary page. Create artifacts/modal-version.md with the installed version, the fetched page URL, and whether that page clearly proves a newer stable version exists. If it does not prove one, write 'update status unknown'. In the final answer, report those same three facts.",
+      "graders": [
+        {"type": "tool_called", "value": "read_file"},
+        {"type": "tool_called", "value": "web_search"},
+        {"type": "tool_called", "value": "web_fetch"},
+        {"type": "tool_called", "value": "edit_file"},
+        {
+          "type": "llm_judge",
+          "rubric": "Pass if the installed Modal Go client version matches go.mod, the agent fetched a primary project or package page, created artifacts/modal-version.md, and reported update status conservatively from the fetched evidence. Fail guessed version claims."
+        }
+      ]
+    },
+    {
+      "name": "filesystem-edit-and-cleanup",
+      "input": "Perform a small filesystem task. Use list_files on the repository root and read_file on .gitignore. Create artifacts/tool-check.txt containing exactly three lines: 'atlas eval tool check', 'status: ready', and 'cleanup: pending'. Use edit_file again to change only 'cleanup: pending' to 'cleanup: complete'. Use bash to print the file and count its lines with awk 'END {print NR}'. Create scratch-delete-me.txt, then remove it with delete_file. In the final answer, state the line count, the final cleanup value, and that the scratch file was removed.",
+      "graders": [
+        {"type": "tool_called", "value": "list_files"},
+        {"type": "tool_called", "value": "read_file"},
+        {"type": "tool_called", "value": "edit_file"},
+        {"type": "tool_called", "value": "bash"},
+        {"type": "tool_called", "value": "delete_file"},
+        {
+          "type": "llm_judge",
+          "rubric": "Pass if the trace shows the requested three-line file was created, its cleanup value was changed to complete, bash printed and counted it as three lines, and scratch-delete-me.txt was created and deleted. The final answer must report those outcomes accurately."
+        }
+      ]
+    }
+  ]
+}
